@@ -77,7 +77,11 @@ the **first** failure, which is what the ingress tests assert.
 4. `seq` exceeds `localSeq` by more than 1000 -> drop, raise `error`
 5. Missing or unparseable `micLive` or `bye` -> version mismatch, raise `error`
 
-Only then is the datagram processed by §5.4's convergence rules.
+Only then is the datagram processed. **Where it goes next depends on `bye`:**
+
+- `bye: false` -> §5.4's convergence rules, as normal.
+- `bye: true` -> the presence layer **only**. It never reaches §5.4, and its `seq` and
+  `activeOwner` are ignored in both directions of ordering. See Departure below.
 
 Steps 1-3 are silent by design. They are the expected result of ordinary traffic from
 another pairing or another application on the same port, and raising `error` for them
@@ -101,17 +105,33 @@ frozen into v1 alongside everything else.
 
 ## Departure
 
-`bye: true` is sent on graceful exit, logoff, and shutdown - three times, about 50 ms
-apart, because UDP offers no retry and no further heartbeat is coming.
+`bye: true` is sent on graceful exit and on `WM_ENDSESSION` - never on the cancellable
+query phase - three times, about 50 ms apart, because UDP offers no retry and no further
+heartbeat is coming. A sender claiming on its way out broadcasts its state datagram first,
+then the `bye`s.
 
-A receiver that accepts a `bye` clears peer presence immediately rather than waiting out
-the 10 s window, which collapses the asymmetry `design.md` §9.2-5 calls "the wrong way
-round given Goal 1". It does **not** touch `activeOwner`: §5.2 is explicit that a peer
-disappearing never moves ownership, and a `bye` is a peer disappearing with better
-manners.
+On receipt, a `bye` that passes every ingress check does exactly three things:
 
-A forged `bye` causes an unmute, which is the safe direction and no worse than the replay
-§7.1 already accepts.
+1. **Bypasses §5.4.** Its `seq` and `activeOwner` are ignored, including when `seq` is
+   strictly higher. A departure can never move the latch, which is what keeps §5.2 true.
+2. **Clears peer presence immediately** rather than waiting out the 10 s window, and sets a
+   departed flag. Presence is re-established only by the next accepted **non-`bye`**
+   datagram. This rule has to be stated: a `bye` is itself a valid datagram, so a receiver
+   that merely refreshed a last-seen timestamp would extend presence rather than clear it.
+3. **Leaves the §7.6 quarantine observation latch alone.** A machine that observed its peer
+   during a rejoin window still adopts that peer's state at expiry, however many `bye`s
+   arrive afterwards.
+
+Together these collapse the asymmetry `design.md` §9.2-5 calls "the wrong way round given
+Goal 1" without handing a departure the power to move ownership or to steer a rejoining
+machine.
+
+**On replay and forgery.** Forgery is not a concern: the `mac` is keyed by `pairKey`, which
+never crosses the network. Replay needs no key and §7.1 accepts it explicitly. With the
+three rules above in place, a replayed `bye` can only clear presence, which unmutes - Goal
+1's safe direction. No anti-replay rule is specified; one was considered and deliberately
+dropped, because it would add mechanism to a frozen format to defend against a threat the
+design already tolerates.
 
 ## Bounds
 
@@ -141,6 +161,7 @@ is almost always yes.
 | `v1-baseline` | Nominal datagram, `micLive: false`, `bye: false`, mid-range `seq` |
 | `v1-miclive-true` | Phase 2 shape, proving phase 1 and 2 are wire-compatible |
 | `v1-bye` | `bye: true`, the departure datagram |
+| `v1-bye-higher-seq` | `bye: true` with `seq` strictly above the receiver's, asserting `activeOwner` does **not** move |
 | `v1-seq-zero` | `seq: 0`, guarding leading-zero and empty-integer formatting |
 | `v1-seq-max` | `seq` at `uint64.Max`, the §5.4 bound case |
 | `v1-owner-is-peer` | `activeOwner` naming the other roster entry |

@@ -48,9 +48,8 @@ datagram that narrows §9.2-5. See [ADRs 0011-0016](docs/adr/).
 
 An adversarial review on 2026-09-28 found that a chosen mechanism is not the same as a
 closed gap: two Critical defects in the `bye` amendment, one in the uninstall script, and
-one in the seam set. A remediation plan is approved and must land before coding starts.
-[`docs/review-2026-09-28.md`](docs/review-2026-09-28.md) is the record, and it is the right
-place to start reading.
+one in the seam set. All four are now fixed, and `docs/design.md` is at revision 4.
+[`docs/review-2026-09-28.md`](docs/review-2026-09-28.md) is the record.
 
 One risk is knowingly carried: §9.2-3 assumes muting the render endpoint doesn't disturb
 capture sessions, and that gets verified against the running app in phase 2 rather than up
@@ -60,7 +59,7 @@ front.
 
 | Document | What it covers |
 |---|---|
-| [`docs/design.md`](docs/design.md) | The full design at revision 3 - what it does and why |
+| [`docs/design.md`](docs/design.md) | The full design at revision 4 - what it does and why |
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | How it gets built, tested, and deployed |
 | [`docs/manual-test-matrix.md`](docs/manual-test-matrix.md) | The per-release checklist CI can't cover |
 | [`docs/wire-format.md`](docs/wire-format.md) | Normative v1 datagram format, frozen |
@@ -69,7 +68,7 @@ front.
 
 ## Design
 
-[`docs/design.md`](docs/design.md) is the full design, at revision 3. It went through an
+[`docs/design.md`](docs/design.md) is the full design, at revision 4. It went through an
 adversarial review that found four Critical defects in revision 1 - the mute predicate
 never consulted microphone state, `activeOwner` had an unbounded domain that could mute
 both machines durably, the HMAC was keyed by a secret broadcast in cleartext, and the phase

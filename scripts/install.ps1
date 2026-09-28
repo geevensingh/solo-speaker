@@ -46,6 +46,11 @@ $targetExe = Join-Path $InstallRoot 'SoloSpeaker.exe'
 # An already-running instance holds a lock on the executable, and replacing the binary
 # underneath a process that is mid-mute is exactly how an endpoint gets orphaned. Stop it
 # first and let its graceful-exit path restore audio and clear the ledger (design.md 7.6).
+#
+# CloseMainWindow cannot stop a tray app -- MainWindowHandle is zero for a process with no
+# visible top-level window -- so this throws on a running instance until the app grows a
+# real shutdown channel (a work item 12 requirement). Throwing is correct: the alternative
+# is replacing a binary out from under a live mute.
 $running = Get-Process -Name 'SoloSpeaker' -ErrorAction SilentlyContinue
 if ($running) {
     Write-Host 'Stopping the running instance so it can restore audio before upgrade...'
@@ -53,7 +58,7 @@ if ($running) {
         if ($PSCmdlet.ShouldProcess("PID $($process.Id)", 'Stop SoloSpeaker')) {
             $process.CloseMainWindow() | Out-Null
             if (-not $process.WaitForExit(10000)) {
-                throw "SoloSpeaker (PID $($process.Id)) did not exit within 10s. Close it by hand, confirm audio is restored, then re-run."
+                throw "SoloSpeaker (PID $($process.Id)) did not exit within 10s. Nothing has been changed. Close it by hand, confirm audio is restored, then re-run."
             }
         }
     }

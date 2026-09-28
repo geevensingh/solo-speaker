@@ -1,17 +1,17 @@
 # SoloSpeaker - Implementation Plan
 
-**Status:** Revision 2 - written against `design.md` revision 3
+**Status:** Revision 3 - written against `design.md` revision 4
 **Covers:** phase 1 only, plus the standing test and deployment machinery that phases 2
 and 3 inherit
 **Companions:** [`manual-test-matrix.md`](manual-test-matrix.md) -
 [`wire-format.md`](wire-format.md) - [`review-2026-09-28.md`](review-2026-09-28.md) -
 [`adr/`](adr/)
 
-> **Read [`review-2026-09-28.md`](review-2026-09-28.md) first.** An adversarial review of
-> this plan found two Critical defects in the `bye` amendment (§8.6), one in
-> `scripts/uninstall.ps1`, and one in the seam set §3 declares. A remediation plan is
-> approved and must land before work item 1 of §7. In particular, §4.1's claim that CI can
-> prove ledger replay is **not currently true** - see finding B-4.
+> The four blocking findings of [`review-2026-09-28.md`](review-2026-09-28.md) are
+> **fixed**. `design.md` is at revision 4, the `bye` semantics are corrected, the uninstall
+> script aborts rather than deleting behind a failed repair, and the seam set is redrawn so
+> §4.1's claims about what CI can prove are now true. The deferred findings remain open as
+> issues #1 through #7.
 
 This plan answers three questions the design deliberately left alone: how the thing gets
 built, how it gets tested, and how it gets onto the two machines. It does not restate the
@@ -57,12 +57,15 @@ src/
     NativeMethods.txt          CsWin32 surface, annotated per design section
     app.manifest               asInvoker, PerMonitorV2
 tests/
-  SoloSpeaker.Core.Tests/      net10.0 - everything CI can prove
+  SoloSpeaker.Core.Tests/      net10.0 - the reducer, wire format, ledger, config
+  SoloSpeaker.App.Tests/       net10.0-windows - DPAPI, WASAPI, icon resources
 scripts/
   install.ps1                  Copy, unblock, register logon task
-  uninstall.ps1                --restore, then remove
+  uninstall.ps1                --restore, then remove - and abort if it fails
+  Test-Ascii.ps1               AGENTS.md section 4 lint gate
 docs/
-  design.md  implementation-plan.md  manual-test-matrix.md  wire-format.md  adr/
+  design.md  implementation-plan.md  manual-test-matrix.md  wire-format.md
+  review-2026-09-28.md  adr/
 ```
 
 `SoloSpeaker.Core` targets `net10.0`, not `net10.0-windows`. That is the plan's single
@@ -70,6 +73,11 @@ most load-bearing structural choice: `design.md` §6 states that the state machi
 pure reducer with all I/O at the edges, and a platform-neutral target framework turns that
 statement into something the compiler enforces. A `using System.Windows.Forms` or a
 WASAPI call cannot drift into the reducer, because the reference does not exist.
+
+Note the honest bound, established by the review: it prevents referencing Windows types.
+It does **not** prevent `DateTime.UtcNow`, `File.WriteAllText`, `Socket`, or `Random` -
+the impurities that actually threaten the timing tests. Those are held by the `IClock`
+rule in `AGENTS.md` §3, which is discipline rather than mechanism.
 
 ---
 
@@ -84,14 +92,23 @@ remaining boundaries are implied rather than stated. They are declared in
 | `IClock` | Every interval is testable without sleeping - the 2 s cadence, 10 s presence window, 12 s quarantine, 5 s debounce, 250 ms self-change suppression |
 | `IPeerTransport` | Datagrams can be dropped, duplicated, reordered and delayed on demand; validation sits *above* this seam so hostile-input tests run on real bytes without a socket |
 | `IProximitySource` | Presence is never read from the transport directly, which is what would make the phase-3 decomposition expensive |
-| `IMuteActuator` | Ledger and reconcile logic are testable without a real endpoint |
+| `IMuteActuator` | Actuation is testable without a real endpoint. **Actuation only** - the ledger is separate |
+| `ILedger` | §7.3's recovery record is a distinct component per §6, and its replay policy lives in Core where tests can reach it |
+| `IFileStore` | Persisted-file *policy* lives in Core over a thin I/O seam, rather than in App where no test could reference it |
+| `IConfigStore` | The roster has a seam at all. It is the right-hand side of §5.5's predicate and previously had none |
+| `ISecretProtector` | DPAPI is Windows-only; without this seam one call would drag the whole config store back into App |
 | `IMicWatcher` | Phase 1 supplies an always-`false` stub; phase 2 swaps in WASAPI with no change above the seam |
-| `IStateStore` | Atomic-write and cross-file `pairId` checks are testable against a temp directory |
+| `IStateStore` | Atomic-write and the cross-file `pairId` check are testable against a fake file store |
 
 `IClock` carries a rule with teeth: nothing outside the composition root may call
 `DateTime.UtcNow` or `Environment.TickCount64`. A single real-clock call inside the
 reducer makes the timing tests either slow or flaky, and those are precisely the tests
 covering the paths where Goal 1 is at risk.
+
+The last four seams are the result of `review-2026-09-28.md` finding B-4. An earlier
+version of this section claimed `IStateStore` existed so "cross-file `pairId` checks are
+testable", while the interface exposed no config surface to express the check with - and
+fused `MuteActuator` with `Ledger`, which §6 and `AGENTS.md` §3 both name separately.
 
 ---
 
@@ -106,8 +123,13 @@ this repository is a weaker claim than it looks, and should be read as such.
 **CI can prove:** the reducer and every `design.md` §10 unit case; convergence and
 quarantine across two in-process nodes; wire-format canonicalization, HMAC, and the full
 ingress-order pipeline; hostile and fuzzed input; ledger replay and its failure modes;
-atomic state writes; that the project builds warning-free and publishes to a working
-single file.
+atomic state writes; the cross-file `pairId` check; that the project builds warning-free
+and publishes to a working single file.
+
+Ledger and config cases are provable only because their policy lives in
+`SoloSpeaker.Core` over `IFileStore`. That was not true when this section was first
+written - see `review-2026-09-28.md` finding B-4 - and the claim is worth re-checking
+rather than trusting if the seam ever moves.
 
 **CI cannot prove:** that `IAudioEndpointVolume::SetMute` actually silences the machine;
 that capture-session enumeration sees a real Teams or Zoom call; that UDP broadcast
@@ -375,14 +397,14 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 | 2 | Wire format v1: canonicalization, HMAC, parse, ingress order, **`bye`** | Golden vectors + fuzzer green; `wire-format.md` filled in |
 | 3 | `StateMachine` reducer | All of §4.2 green |
 | 4 | Two-node in-process harness | All of §4.3 green |
-| 5 | `StateStore` + config, atomic write, cross-file `pairId` check, **DPAPI on `pairKey`** | §4.5's state rows green; a config from another profile raises `error`, not a crash |
-| 6 | `PeerLink` over real UDP, including `bye` on graceful exit | Two instances on one host, separate config roots and ports, exchange state |
-| 7 | `MuteActuator` + ledger + `--restore` + `IMMNotificationClient` | §4.5's ledger rows green; headset swap re-targets by hand |
+| 5 | `StateStore` + `ConfigStore` over `IFileStore`, atomic write, cross-file `pairId` check, **DPAPI `ISecretProtector`** | §4.5's state rows green in Core; a config from another profile raises `error`, not a crash, tested in `App.Tests` |
+| 6 | `PeerLink` over real UDP, including `bye` on graceful exit and its three receipt rules | Two instances on one host, separate config roots and ports, exchange state; a `bye` clears presence without moving `activeOwner` |
+| 7 | `MuteActuator` + `Ledger` over `IFileStore` + `--restore` + `IMMNotificationClient` | §4.5's ledger rows green in Core; headset swap re-targets by hand |
 | 8 | **Logging** (ADR 0015), with per-minute ingress-drop aggregation | Ownership changes name their source; a version mismatch is distinguishable from an absent peer |
 | 9 | Tray: five states, **icons** (ADR 0014), named producers, hotkey, sticky `error` | Every state reachable and observed; registration failure raises `error` |
 | 10 | Pairing ceremony (ADR 0011), including pairing-mode ingress exception | Two machines paired from scratch; fingerprints match |
 | 11 | Quarantine: cold start, resume, network-change restart | Lid-open does not move the mute |
-| 12 | **Single-instance guard** (ADR 0012), then packaging: publish, install, uninstall, logon task | Second launch exits without touching the ledger; clean install -> reboot -> still working -> clean uninstall |
+| 12 | **Single-instance guard** (ADR 0012), a real shutdown channel so the scripts can stop a tray app, then packaging: publish, install, uninstall, logon task | Second launch exits without touching the ledger; `install.ps1` upgrades over a running instance without throwing; clean install -> reboot -> still working -> clean uninstall |
 | 13 | Manual matrix sign-off | [`manual-test-matrix.md`](manual-test-matrix.md) fully signed |
 
 Step 6 is worth a note: a good deal of PeerLink can be exercised on one machine by running
@@ -409,7 +431,7 @@ Critical defects. See [`review-2026-09-28.md`](review-2026-09-28.md).
 | §8.3 `pairKey` in plaintext | DPAPI protects the `pairKey` field only; the rest of `config.json` stays readable | [0013](adr/0013-dpapi-protects-pairkey-only.md) | none - survived review intact |
 | §8.4 No tray icon assets | Five icons differentiated by silhouette, colour as reinforcement only | [0014](adr/0014-tray-icons-by-shape.md) | H-8, and no assets exist |
 | §8.5 No diagnostics | Rolling local log; **ingress drops aggregated per minute by reason** | [0015](adr/0015-local-rolling-log.md) | M-5 |
-| §8.6 Asymmetric unmute latency | `bye` field added to wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) | **B-1, B-2 - both Critical, fix approved** |
+| §8.6 Asymmetric unmute latency | `bye` field added to wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) | **B-1, B-2 were Critical; both fixed in `design.md` revision 4** |
 
 Three of these turned out to be sharper than they first looked, and the reasoning is worth
 keeping visible:

@@ -96,6 +96,7 @@ docs/
   implementation-plan.md       # how it gets built, tested, deployed
   manual-test-matrix.md        # per-release checklist for what CI cannot reach
   wire-format.md               # normative v1 datagram format, frozen
+  review-2026-09-28.md         # adversarial review findings and remediation
   adr/                         # decision records
 src/
   SoloSpeaker.Core/            # net10.0 - pure. No Windows reference, by design
@@ -104,7 +105,8 @@ src/
     NativeMethods.txt          # CsWin32 surface, annotated per design section
     app.manifest               # asInvoker, PerMonitorV2
 tests/
-  SoloSpeaker.Core.Tests/      # net10.0 - everything CI can prove
+  SoloSpeaker.Core.Tests/      # net10.0 - the reducer, wire format, ledger, config
+  SoloSpeaker.App.Tests/       # net10.0-windows - DPAPI, WASAPI, icon resources
 scripts/
   install.ps1  uninstall.ps1  Test-Ascii.ps1
 ```
@@ -114,16 +116,27 @@ Constraints that come from the design and are not open questions:
 - `docs/design.md` section 6 names the components: `StateMachine`, `PeerLink`,
   `MicWatcher`, `MuteActuator`, `StateStore`, `Ledger`, `HotkeyListener` +
   `TrayIcon`. New code goes in the component it belongs to; do not invent a
-  parallel decomposition.
+  parallel decomposition. **This rule has already been broken once**: an earlier
+  `IMuteActuator` fused `MuteActuator` and `Ledger`, which put a disk concern
+  behind an audio interface and made every ledger failure mode untestable. See
+  `docs/review-2026-09-28.md` finding B-4.
 - **`StateMachine` is a pure reducer** (`(currentState, event, now) ->
   (newState, effects)`) and **all I/O lives at the edges**. This is called out
   in the design as the main testability decision. Do not put a socket, an audio
   device handle, a clock read, or a disk write inside the reducer.
 - **The reducer lives in `SoloSpeaker.Core`; everything it talks to is an
   interface in `SoloSpeaker.Core/Abstractions/`.** `IClock`, `IPeerTransport`,
-  `IProximitySource`, `IMuteActuator`, `IMicWatcher`, `IStateStore`.
-  Implementations live in `SoloSpeaker.App`. A test that needs a real socket or
-  a real audio device to exercise arbitration logic means the boundary leaked.
+  `IProximitySource`, `IMuteActuator`, `IMicWatcher`, `IStateStore`,
+  `IConfigStore`, `ILedger`, `IFileStore`, `ISecretProtector`. A test that needs
+  a real socket or a real audio device to exercise arbitration logic means the
+  boundary leaked.
+- **Persisted-file policy lives in Core, not App.** The JSON shapes of sections
+  7.3 and 7.5, the write-before-mutate ordering, the cross-file `pairId` check,
+  and ledger replay are all implemented in `SoloSpeaker.Core` over
+  `IFileStore`. `SoloSpeaker.App` supplies raw `System.IO` calls and the DPAPI
+  `ISecretProtector`, and nothing that reasons about what the bytes mean. This
+  is what keeps those failure modes reachable from the test suite - which is the
+  claim the plan made before it was true.
 - **Nothing outside the composition root reads the system clock.** No
   `DateTime.UtcNow`, no `Environment.TickCount64` - take `IClock`. Every
   interval in the design (2 s cadence, 10 s presence window, 12 s quarantine,

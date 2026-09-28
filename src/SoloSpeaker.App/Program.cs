@@ -13,10 +13,30 @@ namespace SoloSpeaker.App;
 /// </remarks>
 internal static class Program
 {
+    internal const int ExitNotImplemented = 2;
+
     [STAThread]
     private static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
+
+        // Any argument reaching this stub is a subcommand that does not exist yet, and
+        // --restore is the one that matters: scripts/uninstall.ps1 gates deletion of the
+        // binary and the mutation ledger on its exit code. Reporting success would tell
+        // the uninstaller a mute had been repaired when nothing was repaired at all, so
+        // the stub fails loudly instead. A bare launch returns 0 because it genuinely did
+        // what it was asked.
+        if (args.Length > 0)
+        {
+            MessageBox.Show(
+                $"'{string.Join(' ', args)}' is not implemented yet.\n\n" +
+                "No audio endpoint was restored. See docs/implementation-plan.md.",
+                "SoloSpeaker",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+
+            return ExitNotImplemented;
+        }
 
         MessageBox.Show(
             "SoloSpeaker is not implemented yet.\n\n" +
@@ -25,6 +45,6 @@ internal static class Program
             MessageBoxButtons.OK,
             MessageBoxIcon.Information);
 
-        return args.Length;
+        return 0;
     }
 }

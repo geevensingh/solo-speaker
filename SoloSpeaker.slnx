@@ -4,6 +4,7 @@
     <Project Path="src/SoloSpeaker.Core/SoloSpeaker.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/SoloSpeaker.App.Tests/SoloSpeaker.App.Tests.csproj" />
     <Project Path="tests/SoloSpeaker.Core.Tests/SoloSpeaker.Core.Tests.csproj" />
   </Folder>
 </Solution>

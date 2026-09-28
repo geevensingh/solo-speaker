@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    net10.0-windows, matching SoloSpeaker.App. This project exists because
+    docs/review-2026-09-28.md finding B-4 established that nothing in App was reachable by
+    any test: SoloSpeaker.Core.Tests targets platform-neutral net10.0 and therefore cannot
+    reference a Windows-targeted assembly.
+
+    Most of what used to be untestable moved into Core behind IFileStore. What is left here
+    is what genuinely cannot move: the DPAPI implementation of ISecretProtector, the WASAPI
+    implementation of IMuteActuator, and the embedded tray icon resources.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>SoloSpeaker.App.Tests</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\SoloSpeaker.App\SoloSpeaker.App.csproj" />
+  </ItemGroup>
+
+</Project>

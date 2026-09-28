@@ -1,17 +1,24 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 3 - adds the `bye` datagram and the naming change; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 4 - corrects the revision-3 `bye` semantics; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
 
-> **Known defects, 2026-09-28.** An adversarial review found two Critical defects in the
-> revision-3 `bye` amendment, both of which live in this document and are **not yet
-> fixed**. §7.1's ingress order sends every accepted datagram to §5.4, so a `bye` can move
-> `activeOwner` in violation of §5.2 - which contradicts §10's own row asserting it cannot.
-> And §7.6's quarantine reads presence, which a `bye` clears, so an ordinary shutdown
-> during an ordinary resume can re-open the lid-open defect §7.6 exists to prevent. A
-> remediation plan is approved. Read
-> [`review-2026-09-28.md`](review-2026-09-28.md) before implementing §7.1, §7.6, or §5.4.
+> **Revision 4 changes, 2026-09-28.** The adversarial review recorded in
+> [`review-2026-09-28.md`](review-2026-09-28.md) found two Critical defects in revision 3's
+> `bye` amendment. Both are fixed here.
+>
+> §5.4 now states that a `bye` bypasses convergence entirely, so a departure cannot move
+> the latch - revision 3 specified the sender's discipline and never the receiver's
+> enforcement. §7.6's peer observation becomes a latch that a `bye` cannot clear, because
+> presence is quarantine's expire-versus-adopt input and revision 3 gave `bye` the power to
+> clear presence without noticing what else read it. §7.1 now names the presence
+> re-acquisition rule, which no revision had specified. An anti-replay rule for `bye` was
+> considered and deliberately dropped: after these fixes a replayed `bye` can only unmute,
+> which is within the tolerance §7.1 already grants replay.
+>
+> §7.6's uninstall row is also corrected: the uninstaller aborts without deleting anything
+> when `--restore` fails, rather than removing the binary and the ledger behind it.
 
 > **Revision 3 changes, 2026-09-27.** One material change: a `bye` boolean joins the §7.1
 > payload and §7.6's unmute paths, so a machine leaving deliberately tells its peer instead
@@ -160,6 +167,19 @@ passes the §7.1 authentication and roster checks:
   lexicographically smaller roster ID, evaluated identically on both sides, then bump `seq`
   so the resolution propagates.
 
+**A datagram carrying `bye: true` never reaches these rules.** It is consumed by the
+presence layer alone (§7.1), and its `seq` and `activeOwner` are ignored in both directions
+of ordering. The fields are still present and still signed, because canonicalization
+forbids omitting them, but they are not read.
+
+This is not an optimisation. Without it, a departing machine holding the latest `seq`
+broadcasts `bye: true` with `activeOwner = self`, the receiver runs the rules above, sees
+`peerSeq > localSeq`, and adopts - so a **departure** moves the latch. That contradicts
+§5.2, which is the central property of the design, and leaves the receiver holding
+`activeOwner = <absent peer>`, primed to mute the instant that peer returns. Revision 3
+specified the sender's discipline and not the receiver's enforcement, which is the same
+mistake in a different place.
+
 `seq` is `max(localSeq, lastSeenPeerSeq) + 1` - a Lamport clock. Note that this orders by
 *event count*, not wall-clock time, which is the cause of the resume-from-sleep problem
 addressed in §7.6.
@@ -276,14 +296,28 @@ Payload (JSON, ~200 bytes):
 - **`micLive`** is always emitted explicitly, including in phase 1 where it is hardcoded
   `false`. An absent field must never be inferred as `false`; a datagram missing it is
   treated as a version mismatch and raises the `error` tray state.
-- **`bye`** *(added 2026-09-27, see [ADR 0016](adr/0016-goodbye-datagram-in-v1.md))* marks
-  a deliberate departure. It is sent on graceful exit, logoff, and shutdown - three times
-  about 50 ms apart, since UDP offers no retry and no further heartbeat follows. A receiver
-  that accepts it clears peer presence immediately instead of waiting out the 10s window,
-  which collapses the §9.2-5 asymmetry for the common case. It **never** alters
-  `activeOwner`; §5.2 holds, and this is a peer disappearing with better manners rather
-  than a new writer. Like `micLive`, it is always emitted explicitly and an absent field is
-  a version mismatch. A forged `bye` causes an unmute, which is the safe direction.
+- **`bye`** *(added revision 3, semantics corrected revision 4 - see
+  [ADR 0016](adr/0016-goodbye-datagram-in-v1.md))* marks a deliberate departure. It is sent
+  on graceful exit and on `WM_ENDSESSION` - never on the query phase, which the user can
+  still cancel - three times about 50 ms apart, since UDP offers no retry and no further
+  heartbeat follows. A sender that is claiming on its way out broadcasts its state datagram
+  **first**, per the immediate-extra-send rule above, and only then the `bye`s.
+
+  On receipt, a `bye` that passes every ingress check:
+
+  1. **bypasses §5.4 entirely.** Its `seq` and `activeOwner` are ignored. It can never move
+     the latch, which is what keeps §5.2 true.
+  2. **clears peer presence immediately** rather than waiting out the 10s window, and sets
+     a departed flag. Presence is re-established by the next accepted **non-`bye`**
+     datagram. Naming the re-acquisition rule matters: a `bye` is itself a valid datagram,
+     so a receiver that only refreshed a last-seen timestamp would *extend* presence rather
+     than clear it.
+  3. **does not clear the §7.6 quarantine observation latch.** See §7.6.
+
+  Like `micLive`, it is always emitted explicitly and an absent field is a version
+  mismatch. A replayed `bye` clears presence, which unmutes - Goal 1's safe direction, and
+  within the replay tolerance §7.1 already grants. Forgery is not a concern: the `mac` is
+  keyed by `pairKey`, which never crosses the network.
 - **Clock skew:** `sentUtc` is informational and logged, but is **not** a drop condition.
   Revision 1 rejected datagrams more than 60s from local time, which bought nothing
   (ordering relies on `seq`) and could sever the pair entirely on clock drift.
@@ -418,10 +452,10 @@ survives a hard kill, so the guarantee was not delivered. Restated honestly:
 
 | Path | Mechanism |
 |---|---|
-| Graceful exit, logoff, shutdown | Restore endpoints, clear ledger, **send `bye` so the peer unmutes at once rather than after the presence window** |
+| Graceful exit, logoff, shutdown | Restore endpoints, clear ledger, **send `bye` so the peer unmutes at once rather than after the presence window**. Sent on `WM_ENDSESSION`, never on the cancellable query phase |
 | **Hard kill / crash / power loss** | **Not** recoverable in-process. Repaired by ledger replay on next startup (§7.3), and by `--restore` if the app is never launched again |
 | Peer loss | §5.5 predicate goes false; unmute |
-| App uninstalled | Uninstaller runs `--restore` |
+| App uninstalled | Uninstaller runs `--restore` **and aborts without deleting anything if that fails**, so the ledger outlives a failed repair |
 
 **Rejoin quarantine.** A machine that has been asleep or powered off carries a persisted
 `seq` that may exceed the peer's, even though its information is older in wall-clock terms
@@ -432,11 +466,25 @@ On cold start **and on resume from sleep** - the same code path; treating these 
 was a defect in the first attempt at this fix - the machine enters `quarantine`:
 
 - It does **not** broadcast its persisted ownership, and does not apply mute.
-- If the peer is observed during the window, the peer's `(activeOwner, seq)` is adopted
-  **regardless of `seq` ordering**, and `seq` is advanced past it. The rationale is that a
-  continuously-running machine's state reflects the most recent real events, while a
-  rejoining machine's is stale by construction.
-- If the window expires with no peer, the machine resumes normally from persisted state.
+- **Peer observation is a latch, not a live flag.** Any accepted non-`bye` datagram at any
+  point in the window sets it, and nothing clears it for the remainder of the window - in
+  particular a `bye` cannot. The latch, not the instantaneous presence state, is what is
+  read at expiry.
+- If the latch is set, the peer's `(activeOwner, seq)` is adopted **regardless of `seq`
+  ordering**, and `seq` is advanced past it. The rationale is that a continuously-running
+  machine's state reflects the most recent real events, while a rejoining machine's is
+  stale by construction.
+- If the window expires with the latch unset, the machine resumes normally from persisted
+  state.
+
+  The latch exists because presence is quarantine's expire-versus-adopt input, and
+  revision 3 gave `bye` the power to clear presence without noticing what else read it. A
+  laptop waking beside a desktop that then shuts down would observe the desktop's
+  heartbeats, correctly defer to them - and then have that observation erased by the
+  desktop's parting `bye`, expire "with no peer", and assert its own stale ownership. The
+  desktop returns, sees the higher `seq`, adopts, and mutes. That is the lid-open defect
+  this section exists to prevent, reached through an entirely ordinary shutdown with no
+  attacker involved.
 - **Live events are never suppressed.** A manual claim or a mic-edge claim during
   quarantine exits quarantine immediately and writes normally. Without this carve-out, a
   machine that boots directly into a meeting would mute itself mid-call - which inverts
@@ -482,7 +530,7 @@ yet.
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| **1 - Foundation + manual claim** | State machine, roster, PeerLink with **final v1 wire format including `micLive`**, `pairKey` + HMAC, pairing ceremony, StateStore, rejoin quarantine, MuteActuator **with ledger, `--restore`, and device-change handling**, tray with all states and producers, hotkey. Mic detection **not** built; `micLive` hardcoded `false`. | Claim on either machine mutes the other. Hard-killing the app and relaunching restores audio. Headset swap does not strand a muted endpoint. Uninstall restores audio. A forged datagram without `pairKey` is dropped. A lid-open does not move the mute. |
+| **1 - Foundation + manual claim** | State machine, roster, PeerLink with **final v1 wire format including `micLive` and `bye`**, `pairKey` + HMAC, pairing ceremony, StateStore, rejoin quarantine, MuteActuator **with ledger, `--restore`, and device-change handling**, tray with all states and producers, hotkey. Mic detection **not** built; `micLive` hardcoded `false`. | Claim on either machine mutes the other. Hard-killing the app and relaunching restores audio. Headset swap does not strand a muted endpoint. Uninstall restores audio, and refuses to delete anything if it cannot. A forged datagram without `pairKey` is dropped. A lid-open does not move the mute, and neither does a peer's departure. |
 | **2 - Call detection** | MicWatcher, both signals (§7.2), denylist + discovery UI, debounce, `micLive` populated on the wire and in §5.5. | Joining a call on either machine takes ownership without touching the hotkey, and never mutes a machine that is capturing audio. |
 | **3 - Deferred** | Bluetooth RSSI proximity, if LAN presence proves too coarse in practice. | Only on evidence from daily use. |
 
@@ -559,8 +607,12 @@ have failed without any authentication at all.
 - `seq` delta beyond the bound -> dropped, `error` raised
 - `micLive` absent from a datagram -> version mismatch, not `false`
 - `bye` absent from a datagram -> version mismatch, not `false`
-- an accepted `bye` clears peer presence immediately, and **leaves `activeOwner`
-  untouched** - §5.2 holds, a departing peer never moves the latch
+- an accepted `bye` **bypasses §5.4 entirely** - it moves `activeOwner` in neither
+  direction of `seq` ordering, including when its `seq` is strictly higher
+- an accepted `bye` clears peer presence immediately, and presence is re-established only
+  by the next accepted **non-`bye`** datagram
+- a `bye` does **not** clear the §7.6 quarantine observation latch: a machine that observed
+  its peer and then received a `bye` still adopts the peer's state at expiry
 - a `bye` failing any ingress check is dropped like any other datagram
 - `selfMicLive` true -> never muted, even when the peer is owner and present
 - quarantine: peer observed -> adopt peer's owner even when our `seq` is higher
@@ -581,13 +633,15 @@ ledger; hard-kill while muted and run `--restore` instead; uninstall while muted
 `state.json` but not `config.json` and confirm `error` rather than silent misbehaviour; a
 second instance launched while the first holds a mute exits without touching the ledger
 (§7.3); a `config.json` that cannot be decrypted on this profile raises `error` with a
-re-pair cause rather than crashing.
+re-pair cause rather than crashing; **`--restore` failing leaves the binary and the ledger
+in place** rather than deleting them behind a mute it could not repair.
 
 **Hostile** - spoofed datagram with wrong `pairId`; correct `pairId` but no valid `mac`
 (the case revision 1's HMAC could not actually have caught, since the key was derivable
 from the broadcast); valid `mac` but `machineId` outside the roster; `seq = uint64.Max`;
 a replayed valid `bye`, which unmutes - the safe direction - but must not move
-`activeOwner`.
+`activeOwner`; a sustained replayed-`bye` flood during a rejoin window, which must not
+prevent the quarantine latch from being honoured at expiry.
 
 The full per-release checklist derived from the three manual blocks above is
 [`manual-test-matrix.md`](manual-test-matrix.md), and the mapping from these unit rows to

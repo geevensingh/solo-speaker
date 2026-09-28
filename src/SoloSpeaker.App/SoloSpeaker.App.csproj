@@ -20,6 +20,10 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="SoloSpeaker.App.Tests" />
+  </ItemGroup>
+
   <!-- Deployment option A: one self-contained file, copied to both machines. -->
   <PropertyGroup>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

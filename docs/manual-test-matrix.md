@@ -36,7 +36,9 @@ correct mute with a wrong icon is still a failure.
 | A7 | Reopen `L`. Wait for quarantine to expire | `L` is still owner; `D` mutes again. Stored ownership survived absence | | |
 | A8 | `L` owner, `D` muted. Exit `L` **gracefully** from the tray menu | `D` unmutes in **under a second**, not after 10 s. This is the `bye` datagram | | |
 | A9 | Repeat A8 but hard-kill `L` instead | `D` takes the full 10 s window. Confirm the log distinguishes this from A8 | | |
-| A10 | `L` owner. Shut Windows down on `L` normally | Same as A8 - `bye` is sent on shutdown and logoff, not only on tray exit | | |
+| A10 | `L` owner. Shut Windows down on `L` normally | Same as A8 - `bye` is sent on `WM_ENDSESSION`, not only on tray exit | | |
+| A11 | Start a Windows shutdown on `L`, then **cancel it** | `L` keeps running. It must not have announced a departure it did not make; presence re-establishes on the next heartbeat | | |
+| A12 | `L` claims with the hotkey and is immediately shut down | `D` adopts the claim from the state datagram. The `bye` that follows must **not** move ownership | | |
 
 ## B. Stickiness - the central property
 
@@ -59,7 +61,8 @@ someone "helpfully" making it a function of current conditions.
 | C3 | Reboot both simultaneously | Both quarantine, both audible, converge on expiry. Neither is left muted | | |
 | C4 | Sleep `L`. Wake it and immediately press the hotkey, inside the 12 s window | Claim wins immediately; quarantine exits. A machine booting into a meeting must not mute itself | | |
 | C5 | Disconnect and reconnect `L`'s Wi-Fi | Quarantine window restarts on the network-change notification | | |
-| C6 | Suspend `L` mid-mute for over an hour, then resume | Audio state correct; no stuck mute; tray accurate | | |
+| C6 | `L` wakes and sees `D`'s heartbeats, then `D` shuts down gracefully mid-window | **`L` still adopts `D`'s state at expiry.** The observation latch is set and `D`'s parting `bye` must not clear it. This is the B-2 case, and it needs no attacker | | |
+| C7 | Suspend `L` mid-mute for over an hour, then resume | Audio state correct; no stuck mute; tray accurate | | |
 
 ## D. Audio endpoints and the ledger
 
@@ -73,8 +76,10 @@ someone "helpfully" making it a function of current conditions.
 | D6 | Relaunch after D5 | Ledger replay restores audio on startup | | |
 | D7 | Repeat D5, then run `SoloSpeaker.exe --restore` instead of relaunching | Audio restored; app does not start | | |
 | D8 | Repeat D5, then run `scripts\uninstall.ps1` | Audio restored before the binary is deleted; script reports success | | |
-| D9 | While `D` is muted, pull its power | On next boot, ledger replay restores audio | | |
-| D10 | Plug in a second render device and route audio to it while muted | Second device stays audible. Accepted per §9.2-4; confirm it is not *also* muted | | |
+| D9 | Make `--restore` fail (corrupt the ledger), then run `uninstall.ps1` | **Nothing is removed.** Binary and `ledger.json` both survive, exit code is non-zero, and the message names the repair command. This is the Goal 1 branch | | |
+| D10 | Repeat D9 with `-Force` | Removal proceeds, with a warning telling you to confirm audio by hand | | |
+| D11 | While `D` is muted, pull its power | On next boot, ledger replay restores audio | | |
+| D12 | Plug in a second render device and route audio to it while muted | Second device stays audible. Accepted per §9.2-4; confirm it is not *also* muted | | |
 
 ## E. Failure and error states
 
@@ -105,8 +110,10 @@ vectors to mutate.
 | F5 | Send a valid datagram with `seq = uint64.Max` | Dropped, `error` raised. **Persisted state on both machines is unchanged** | | |
 | F6 | Replay a captured valid datagram inside the presence window | Accepted per §7.1. Confirm the blast radius stays bounded | | |
 | F7 | Replay a captured `bye` datagram | Peer presence clears and the machine unmutes - the safe direction. **`activeOwner` must not move** | | |
-| F8 | Send 5,000 malformed datagrams in one minute | Log shows one aggregated line per reason, not 5,000 lines | | |
-| F9 | Leave `L` in another room on the same Wi-Fi | `L` is treated as present and will be muted. Known limitation §9.2-1 - confirm it is the *only* surprise | | |
+| F8 | Replay a captured `bye` whose `seq` is higher than the receiver's | Still no ownership change. A `bye` bypasses §5.4 in both directions of ordering | | |
+| F9 | Flood replayed `bye`s at ~1 Hz during a rejoin window | The quarantine observation latch holds; the rejoining machine adopts its peer's state at expiry rather than asserting stale ownership | | |
+| F10 | Send 5,000 malformed datagrams in one minute | Log shows one aggregated line per reason, not 5,000 lines | | |
+| F11 | Leave `L` in another room on the same Wi-Fi | `L` is treated as present and will be muted. Known limitation §9.2-1 - confirm it is the *only* surprise | | |
 
 ## G. Install, update, uninstall
 
