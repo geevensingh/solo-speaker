@@ -1,14 +1,21 @@
 # SoloSpeaker - Implementation Plan
 
-**Status:** Revision 1 - written against `design.md` revision 2
+**Status:** Revision 2 - written against `design.md` revision 3
 **Covers:** phase 1 only, plus the standing test and deployment machinery that phases 2
 and 3 inherit
 **Companions:** [`manual-test-matrix.md`](manual-test-matrix.md) -
-[`wire-format.md`](wire-format.md) - [`adr/`](adr/)
+[`wire-format.md`](wire-format.md) - [`review-2026-09-28.md`](review-2026-09-28.md) -
+[`adr/`](adr/)
+
+> **Read [`review-2026-09-28.md`](review-2026-09-28.md) first.** An adversarial review of
+> this plan found two Critical defects in the `bye` amendment (§8.6), one in
+> `scripts/uninstall.ps1`, and one in the seam set §3 declares. A remediation plan is
+> approved and must land before work item 1 of §7. In particular, §4.1's claim that CI can
+> prove ledger replay is **not currently true** - see finding B-4.
 
 This plan answers three questions the design deliberately left alone: how the thing gets
 built, how it gets tested, and how it gets onto the two machines. It does not restate the
-design, and where the two disagree the design wins - except for the items in §10, which
+design, and where the two disagree the design wins - except for the items in §8, which
 are gaps the design does not cover at all.
 
 ---
@@ -387,19 +394,22 @@ rather than by machine - decide that when step 12 lands, not before.
 Step 8 comes before the tray deliberately. Bringing up five icon states without a log is
 harder than it needs to be, and the log is what makes step 10's pairing failures legible.
 
-## 8. Open items - all resolved
+## 8. Open items - mechanisms chosen
 
-Six gaps in `design.md` were identified while writing this plan. All are now settled by
-ADRs, and the resolutions are folded into §7's work breakdown above.
+Six gaps in `design.md` were identified while writing this plan, and a mechanism is chosen
+for each. **"Mechanism chosen" is not "resolved."** An earlier revision of this section was
+titled "all resolved"; the adversarial review of 2026-09-28 found that four of the six name
+a mechanism without specifying its failure modes, and that the sixth introduced two
+Critical defects. See [`review-2026-09-28.md`](review-2026-09-28.md).
 
-| Was | Resolution | ADR |
-|---|---|---|
-| §8.1 Pairing transfer unspecified | Bundle file to B; B's roster ID returns on its ordinary first heartbeat, accepted while A's roster is incomplete and its pairing window is open. **No new wire message type** | [0011](adr/0011-pairing-bundle-file.md) |
-| §8.2 No single-instance guard | Named mutex `Local\SoloSpeaker`, acquired **before** ledger replay | [0012](adr/0012-single-instance-guard.md) |
-| §8.3 `pairKey` in plaintext | DPAPI protects the `pairKey` field only; the rest of `config.json` stays readable | [0013](adr/0013-dpapi-protects-pairkey-only.md) |
-| §8.4 No tray icon assets | Five icons differentiated by silhouette, colour as reinforcement only | [0014](adr/0014-tray-icons-by-shape.md) |
-| §8.5 No diagnostics | Rolling local log; **ingress drops aggregated per minute by reason** | [0015](adr/0015-local-rolling-log.md) |
-| §8.6 Asymmetric unmute latency | `bye` field added to wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) |
+| Was | Mechanism | ADR | Known open |
+|---|---|---|---|
+| §8.1 Pairing transfer unspecified | Bundle file to B; B's roster ID returns on its ordinary first heartbeat, accepted while A's roster is incomplete and its pairing window is open. **No new wire message type** | [0011](adr/0011-pairing-bundle-file.md) | H-3, H-4, H-5, H-6 |
+| §8.2 No single-instance guard | Named mutex `Local\SoloSpeaker`, acquired **before** ledger replay | [0012](adr/0012-single-instance-guard.md) | M-1, M-2 |
+| §8.3 `pairKey` in plaintext | DPAPI protects the `pairKey` field only; the rest of `config.json` stays readable | [0013](adr/0013-dpapi-protects-pairkey-only.md) | none - survived review intact |
+| §8.4 No tray icon assets | Five icons differentiated by silhouette, colour as reinforcement only | [0014](adr/0014-tray-icons-by-shape.md) | H-8, and no assets exist |
+| §8.5 No diagnostics | Rolling local log; **ingress drops aggregated per minute by reason** | [0015](adr/0015-local-rolling-log.md) | M-5 |
+| §8.6 Asymmetric unmute latency | `bye` field added to wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) | **B-1, B-2 - both Critical, fix approved** |
 
 Three of these turned out to be sharper than they first looked, and the reasoning is worth
 keeping visible:
@@ -408,7 +418,8 @@ keeping visible:
 the wire format in phase 1 so that nothing on the wire becomes a two-machine migration. A
 `bye` field added later costs exactly the coordinated update that phase re-cut exists to
 prevent. Filing it as "nice to have" would have quietly converted it into "never, without
-a version bump".
+a version bump". The review upheld this framing and rejected the field's *semantics* -
+which is a different objection, and a fixable one.
 
 **§8.1 needed no new wire message.** The obvious design - a dedicated pairing datagram -
 would itself have had to be frozen into v1. Reusing B's ordinary heartbeat, with a bounded

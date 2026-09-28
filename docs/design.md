@@ -4,6 +4,15 @@
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
 
+> **Known defects, 2026-09-28.** An adversarial review found two Critical defects in the
+> revision-3 `bye` amendment, both of which live in this document and are **not yet
+> fixed**. §7.1's ingress order sends every accepted datagram to §5.4, so a `bye` can move
+> `activeOwner` in violation of §5.2 - which contradicts §10's own row asserting it cannot.
+> And §7.6's quarantine reads presence, which a `bye` clears, so an ordinary shutdown
+> during an ordinary resume can re-open the lid-open defect §7.6 exists to prevent. A
+> remediation plan is approved. Read
+> [`review-2026-09-28.md`](review-2026-09-28.md) before implementing §7.1, §7.6, or §5.4.
+
 > **Revision 3 changes, 2026-09-27.** One material change: a `bye` boolean joins the §7.1
 > payload and §7.6's unmute paths, so a machine leaving deliberately tells its peer instead
 > of being timed out. It narrows §9.2-5, which revision 2 recorded as bounded-not-fixed.

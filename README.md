@@ -42,9 +42,15 @@ repository scaffolding, and CI are in place. No product code yet.
 Phase 1 deliberately ships without call detection, so a manual claim can mute a machine
 that's mid-meeting. That limitation is accepted and recorded, not overlooked.
 
-Every gap the plan found in the design is now closed - pairing transfer, a single-instance
-guard, `pairKey` protection at rest, tray icons, diagnostics, and a `bye` datagram that
-narrows §9.2-5. See [ADRs 0011-0016](docs/adr/).
+Every gap the plan found in the design now has a chosen mechanism - pairing transfer, a
+single-instance guard, `pairKey` protection at rest, tray icons, diagnostics, and a `bye`
+datagram that narrows §9.2-5. See [ADRs 0011-0016](docs/adr/).
+
+An adversarial review on 2026-09-28 found that a chosen mechanism is not the same as a
+closed gap: two Critical defects in the `bye` amendment, one in the uninstall script, and
+one in the seam set. A remediation plan is approved and must land before coding starts.
+[`docs/review-2026-09-28.md`](docs/review-2026-09-28.md) is the record, and it is the right
+place to start reading.
 
 One risk is knowingly carried: §9.2-3 assumes muting the render endpoint doesn't disturb
 capture sessions, and that gets verified against the running app in phase 2 rather than up
@@ -58,6 +64,7 @@ front.
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | How it gets built, tested, and deployed |
 | [`docs/manual-test-matrix.md`](docs/manual-test-matrix.md) | The per-release checklist CI can't cover |
 | [`docs/wire-format.md`](docs/wire-format.md) | Normative v1 datagram format, frozen |
+| [`docs/review-2026-09-28.md`](docs/review-2026-09-28.md) | Adversarial review findings and the approved remediation plan |
 | [`docs/adr/`](docs/adr/) | Decision records |
 
 ## Design
