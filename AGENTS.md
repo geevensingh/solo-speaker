@@ -315,16 +315,46 @@ Before finishing a task:
   resolved threads) apply to agent behavior regardless of whether the platform
   is enforcing them today. An agent must not merge its own PR on the grounds
   that nothing is technically stopping it.
-- When a commit is authored with AI assistance, include:
+- **Every AI-assisted commit carries two distinct kinds of trailer**: one for
+  *attribution* (who wrote it) and one for *session identity* (which agent
+  session produced it). They answer different questions. Do not conflate them,
+  and do not drop one because the other is present.
 
   ```
   Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
+  AI-Local: <local-session-id>
+  AI-Cloud: <cloud-session-id>
   ```
 
-  This is the trailer the Copilot CLI runtime emits. If a runtime you are using
-  mandates a different display name against this same account ID, follow the
-  runtime and flag the mismatch so this line can be updated - do not leave the
-  two silently divergent.
+  - **`Co-authored-by:`** is attribution. The value above is what the Copilot
+    CLI runtime emits. If a runtime you are using mandates a different display
+    name against this same account ID, follow the runtime and flag the mismatch
+    so this line can be updated - do not leave the two silently divergent.
+  - **`AI-Local:` / `AI-Cloud:`** identify the session, so the user can resume
+    it to address review feedback. The `AI-` prefix marks these as agent-runtime
+    identifiers so they are greppable and unambiguous. Trailer form is
+    deliberate: the IDs stay machine-readable via
+    `git log --format='%(trailers:key=AI-Local)'` and can be appended with
+    `git interpret-trailers`.
+  - Canonical sources for the Copilot CLI runtime are the same ones the PR
+    Session block uses: `workspace.yaml` -> `id` for `AI-Local`, and
+    `workspace.yaml` -> `mc_session_id` for `AI-Cloud`. `workspace.yaml` lives
+    at the root of the agent's session folder (typically
+    `~/.copilot/session-state/<local-session-id>/`).
+  - **Emit `AI-Cloud` only when a cloud session exists and its ID differs from
+    `AI-Local`.** A local-only CLI session has no `mc_session_id` at all; that
+    is the normal shape for local work, not a corrupted workspace, so the line
+    is simply omitted and needs no explanatory note.
+  - **Never invent values.** If `workspace.yaml` is genuinely unreadable, omit
+    the session trailers and say so in one line in the commit body.
+  - Put all trailers in a single block at the end of the message, one per line,
+    with no blank lines between them.
+
+  This is the git-native record of which session produced a commit. It does not
+  replace the PR-description Session block below, which is the GitHub-surface
+  record; nor does the PR block replace these trailers. Because the trailers
+  live in the commit itself, session traceability survives regardless of which
+  merge strategy is used.
 
 - When opening or triaging an issue, apply exactly one priority label:
   `priority:high`, `priority:medium`, or `priority:low`. These three labels are
@@ -348,19 +378,14 @@ same session to address review feedback:
 - AI-Cloud: `<cloud-session-id>`
 ```
 
-The `AI-` prefix marks these as agent-runtime identifiers so they are greppable
-and unambiguous.
-
-Canonical sources for the Copilot CLI runtime:
-
-- `workspace.yaml` -> `id` for `AI-Local`
-- `workspace.yaml` -> `mc_session_id` for `AI-Cloud`
-
-`workspace.yaml` lives at the root of the agent's session folder (typically
-`~/.copilot/session-state/<local-session-id>/`). Never invent values. If a CLI
-session genuinely lacks one of these fields (e.g., a corrupted
-`workspace.yaml`), omit the matching line and add a one-line note in the PR
-description explaining what is missing and why.
+This is the GitHub-surface counterpart to the `AI-Local` / `AI-Cloud` commit
+trailers in the rule above; it does not replace them, and they do not replace
+it. The `AI-` prefix, the canonical sources (`workspace.yaml` -> `id` and
+`workspace.yaml` -> `mc_session_id`), the rule for omitting `AI-Cloud` when
+there is no cloud session, and the never-invent-values rule are all identical -
+see the commit-trailer bullet above rather than restating them here. If
+`workspace.yaml` is genuinely unreadable, omit the affected line and add a
+one-line note in the PR description explaining what is missing and why.
 
 **Before appending**, fetch the current PR description (e.g., `gh pr view <num>
 --json body`) and check whether a Session block for the **current** session's
