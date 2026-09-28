@@ -318,8 +318,13 @@ Before finishing a task:
 - When a commit is authored with AI assistance, include:
 
   ```
-  Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+  Co-authored-by: Copilot App <223556219+Copilot@users.noreply.github.com>
   ```
+
+  This is the trailer the Copilot CLI runtime emits. If a runtime you are using
+  mandates a different display name against this same account ID, follow the
+  runtime and flag the mismatch so this line can be updated - do not leave the
+  two silently divergent.
 
 - When opening or triaging an issue, apply exactly one priority label:
   `priority:high`, `priority:medium`, or `priority:low`. These three labels are
