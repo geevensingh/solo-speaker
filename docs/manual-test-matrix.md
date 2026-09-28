@@ -34,6 +34,9 @@ correct mute with a wrong icon is still a failure.
 | A5 | Press the hotkey on both machines within ~100 ms | Both converge to the *same* owner, by lexicographically smaller roster ID. Check both trays | | |
 | A6 | `L` owner. Close `L`. Wait 15 s | `D` unmutes within the 10 s presence window, tray `alone` | | |
 | A7 | Reopen `L`. Wait for quarantine to expire | `L` is still owner; `D` mutes again. Stored ownership survived absence | | |
+| A8 | `L` owner, `D` muted. Exit `L` **gracefully** from the tray menu | `D` unmutes in **under a second**, not after 10 s. This is the `bye` datagram | | |
+| A9 | Repeat A8 but hard-kill `L` instead | `D` takes the full 10 s window. Confirm the log distinguishes this from A8 | | |
+| A10 | `L` owner. Shut Windows down on `L` normally | Same as A8 — `bye` is sent on shutdown and logoff, not only on tray exit | | |
 
 ## B. Stickiness — the central property
 
@@ -84,6 +87,9 @@ someone "helpfully" making it a function of current conditions.
 | E5 | Corrupt `ledger.json` with invalid JSON, restart | `error` raised; app still starts; nothing muted | | |
 | E6 | Acknowledge an `error`, then trigger a different one | Tooltip names the *new* specific cause | | |
 | E7 | Disable the audio endpoint in Sound settings while running | `error` on enumeration failure; no crash | | |
+| E8 | Launch a second copy by hand while one is already running | Second exits with a balloon and **touches nothing** — no ledger write, no endpoint change. Verify by muting first, then launching, then confirming the mute survives | | |
+| E9 | Run `--restore` while an instance is running | Refuses with "SoloSpeaker is running; exit it first". Does not replay the live ledger | | |
+| E10 | Copy `config.json` to a second Windows user profile and start there | `error` with a re-pair cause. No crash, no silent fallback to an unprotected key | | |
 
 ## F. Network and hostile input
 
@@ -98,7 +104,9 @@ vectors to mutate.
 | F4 | Send a valid `mac` with a `machineId` outside the roster | Dropped | | |
 | F5 | Send a valid datagram with `seq = uint64.Max` | Dropped, `error` raised. **Persisted state on both machines is unchanged** | | |
 | F6 | Replay a captured valid datagram inside the presence window | Accepted per §7.1. Confirm the blast radius stays bounded | | |
-| F7 | Leave `L` in another room on the same Wi-Fi | `L` is treated as present and will be muted. Known limitation §9.2-1 — confirm it is the *only* surprise | | |
+| F7 | Replay a captured `bye` datagram | Peer presence clears and the machine unmutes — the safe direction. **`activeOwner` must not move** | | |
+| F8 | Send 5,000 malformed datagrams in one minute | Log shows one aggregated line per reason, not 5,000 lines | | |
+| F9 | Leave `L` in another room on the same Wi-Fi | `L` is treated as present and will be muted. Known limitation §9.2-1 — confirm it is the *only* surprise | | |
 
 ## G. Install, update, uninstall
 
@@ -106,17 +114,24 @@ vectors to mutate.
 |---|---|---|---|---|
 | G1 | Clean install on a machine with no prior state | Installs, registers the logon task, prints pairing instructions | | |
 | G2 | Reboot after G1 | Starts automatically after the delay; tray appears | | |
-| G3 | Full pairing ceremony from scratch on both | Both hold identical `pairId`, `pairKey`, and roster | | |
-| G4 | Before pairing completes, try to mute | Neither machine ever mutes. No roster means §5.5 is false | | |
-| G5 | Run `install.ps1` over a running instance | Running instance stops gracefully and restores audio *before* the binary is replaced | | |
-| G6 | Stop both, update both, start both | No mixed-version window; normal operation resumes | | |
-| G7 | Update one machine only, with an incompatible wire version | Peer sees no peer, both audible. Confirm this is distinguishable in the log from an actual absent peer | | |
-| G8 | `uninstall.ps1` while muted | Audio restored, task removed, `config.json` deleted | | |
-| G9 | `uninstall.ps1 -KeepConfig`, then reinstall | Pairing survives; no second ceremony needed | | |
+| G3 | Full pairing ceremony from scratch on both | Both hold identical `pairId`, `pairKey`, and roster. **Fingerprints match on both screens** | | |
+| G4 | Before pairing completes, try to mute | Neither machine ever mutes. No complete roster means §5.5 is false | | |
+| G5 | Run `--pair-init`, then wait out the 10-minute window without joining | Pairing mode expires; `error` with cause "pairing incomplete"; machine never mutes | | |
+| G6 | Confirm `pairing.json` is gone from both machines after G3 | Deleted on both sides. It is the only place `pairKey` exists in cleartext | | |
+| G7 | Run `install.ps1` over a running instance | Running instance stops gracefully and restores audio *before* the binary is replaced | | |
+| G8 | Stop both, update both, start both | No mixed-version window; normal operation resumes | | |
+| G9 | Update one machine only, with an incompatible wire version | Peer sees no peer, both audible. **The log must show a bad-MAC or version-mismatch drop rate, distinguishing this from an absent peer** | | |
+| G10 | `uninstall.ps1` while muted | Audio restored, task removed, `config.json` deleted | | |
+| G11 | `uninstall.ps1 -KeepConfig`, then reinstall | Pairing survives; no second ceremony needed | | |
 
 ## H. Phase 2 only — call detection
 
 Skip entirely while `micLive` is hardcoded `false`.
+
+**Run H5 first.** It is the empirical check for `design.md` §9.2-3, the assumption that
+render-mute does not disturb capture sessions. The whole auto-claim loop rests on it, and
+a standalone pre-phase-1 spike was deliberately declined in favour of this row — so if it
+fails, it fails here, and the rest of phase 2 is built on sand until it is resolved.
 
 | # | Steps | Expected | Result | Notes |
 |---|---|---|---|---|

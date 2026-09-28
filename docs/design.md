@@ -17,8 +17,15 @@
 > from "Proximity Mute Coordinator" with its `%LOCALAPPDATA%` paths updated to match. No
 > design decision changed. See [`adr/0007-solospeaker-naming.md`](adr/0007-solospeaker-naming.md).
 > How this design gets built, tested, and deployed is
-> [`implementation-plan.md`](implementation-plan.md); §8.1–§8.6 there list the gaps this
-> document does not cover.
+> [`implementation-plan.md`](implementation-plan.md).
+
+> **Amendment, 2026-09-27.** A `bye` field is added to the §7.1 payload and to §7.6's
+> unmute paths, narrowing §9.2-5. It is the only change to the design's substance since
+> revision 2, and it is made now rather than later because §8 freezes the wire format in
+> phase 1 — see [`adr/0016-goodbye-datagram-in-v1.md`](adr/0016-goodbye-datagram-in-v1.md).
+> Five further gaps this document did not cover are settled in ADRs 0011–0015: the pairing
+> transfer mechanism (§7.7), a single-instance guard, `pairKey` protection at rest, tray
+> icon assets, and diagnostics.
 
 ---
 
@@ -242,6 +249,7 @@ Payload (JSON, ~200 bytes):
   "seq": 41,
   "activeOwner": "2d81e4…",
   "micLive": false,
+  "bye": false,
   "sentUtc": "2026-09-25T21:07:33.118Z",
   "mac": "…"
 }
@@ -258,6 +266,14 @@ Payload (JSON, ~200 bytes):
 - **`micLive`** is always emitted explicitly, including in phase 1 where it is hardcoded
   `false`. An absent field must never be inferred as `false`; a datagram missing it is
   treated as a version mismatch and raises the `error` tray state.
+- **`bye`** *(added 2026-09-27, see [ADR 0016](adr/0016-goodbye-datagram-in-v1.md))* marks
+  a deliberate departure. It is sent on graceful exit, logoff, and shutdown — three times
+  about 50 ms apart, since UDP offers no retry and no further heartbeat follows. A receiver
+  that accepts it clears peer presence immediately instead of waiting out the 10s window,
+  which collapses the §9.2-5 asymmetry for the common case. It **never** alters
+  `activeOwner`; §5.2 holds, and this is a peer disappearing with better manners rather
+  than a new writer. Like `micLive`, it is always emitted explicitly and an absent field is
+  a version mismatch. A forged `bye` causes an unmute, which is the safe direction.
 - **Clock skew:** `sentUtc` is informational and logged, but is **not** a drop condition.
   Revision 1 rejected datagrams more than 60s from local time, which bought nothing
   (ordering relies on `seq`) and could sever the pair entirely on clock drift.
@@ -392,7 +408,7 @@ survives a hard kill, so the guarantee was not delivered. Restated honestly:
 
 | Path | Mechanism |
 |---|---|
-| Graceful exit, logoff, shutdown | Restore endpoints, clear ledger |
+| Graceful exit, logoff, shutdown | Restore endpoints, clear ledger, **send `bye` so the peer unmutes at once rather than after the presence window** |
 | **Hard kill / crash / power loss** | **Not** recoverable in-process. Repaired by ledger replay on next startup (§7.3), and by `--restore` if the app is never launched again |
 | Peer loss | §5.5 predicate goes false; unmute |
 | App uninstalled | Uninstaller runs `--restore` |
@@ -435,6 +451,12 @@ One-time, and it produces every long-lived artifact, which is why §8 places it 
 `pairKey` never crosses the network. Re-pairing is the supported path for replacing a
 machine; §9 records that a replaced machine's stale roster entry is otherwise the exact
 condition §5.5's positive predicate exists to catch.
+
+The transfer mechanism for steps 1 and 2 was left open here and is settled in
+[ADR 0011](adr/0011-pairing-bundle-file.md): a bundle file carries `pairId`, `pairKey`, and
+A's roster ID to B, and B's roster ID returns to A on its ordinary first heartbeat, which
+A accepts while its roster is incomplete and its bounded pairing window is open. A short
+code was not viable — the three artifacts total 512 bits, around 103 base32 characters.
 
 ## 8. Implementation phases
 
@@ -500,7 +522,10 @@ in spirit if not in letter.
 5. **Unmute latency is asymmetric in the unsafe direction** — muting is immediate, but
    restoring audio after peer loss takes up to the 10s presence window. Silence therefore
    arrives fast and leaves slowly, which is the wrong way round given Goal 1. Bounded, not
-   fixed.
+   fixed. *Narrowed 2026-09-27 by the `bye` datagram (§7.1,
+   [ADR 0016](adr/0016-goodbye-datagram-in-v1.md)), which removes the delay for deliberate
+   shutdown. Crash, power loss, and out-of-range still fall back to the 10s timeout, so
+   this risk stays on the register.*
 6. **Per-user vs per-machine.** One interactive user assumed; fast-user-switching and RDP
    are not considered.
 7. **N > 2 is unsupported.** The roster is fixed at two entries and the tiebreak assumes

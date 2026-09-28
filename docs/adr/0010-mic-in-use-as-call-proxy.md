@@ -31,8 +31,10 @@ Accept "microphone in use" as the proxy for "in a call".
   deliberately broad.
 - **It rests on an unverified assumption.** §9.2-3 notes that muting the render endpoint
   is assumed not to disturb capture sessions, and that the assumption is load-bearing for
-  the entire auto-claim loop. `implementation-plan.md` §4.7 pulls that check forward to
-  spike S-0, before phase 1 code, rather than leaving it until phase 2 is nearly done.
+  the entire auto-claim loop. A standalone spike before phase 1 was considered and
+  declined; it is verified instead against the running app in phase 2, via manual matrix
+  row H5, which is why that row is run first among the phase-2 rows. The risk of finding
+  out late is accepted knowingly — see `implementation-plan.md` §4.7.
 
 ## Reversibility
 

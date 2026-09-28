@@ -42,10 +42,13 @@ repository scaffolding, and CI are in place. No product code yet.
 Phase 1 deliberately ships without call detection, so a manual claim can mute a machine
 that's mid-meeting. That limitation is accepted and recorded, not overlooked.
 
-Before phase 1 starts, [spike S-0](docs/implementation-plan.md#47-spike-s-0--run-this-before-writing-phase-1-code)
-needs to close: §9.2-3 assumes that muting the render endpoint doesn't disturb capture
-sessions, and the whole auto-claim loop rests on it. Six open items are listed in
-[§8 of the plan](docs/implementation-plan.md#8-open-items-this-plan-could-not-close).
+Every gap the plan found in the design is now closed — pairing transfer, a single-instance
+guard, `pairKey` protection at rest, tray icons, diagnostics, and a `bye` datagram that
+narrows §9.2-5. See [ADRs 0011–0016](docs/adr/).
+
+One risk is knowingly carried: §9.2-3 assumes muting the render endpoint doesn't disturb
+capture sessions, and that gets verified against the running app in phase 2 rather than up
+front.
 
 ## Documentation
 

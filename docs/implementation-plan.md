@@ -23,6 +23,12 @@ are gaps the design does not cover at all.
 | Win32 / COM interop | CsWin32 source generator | [0005](adr/0005-cswin32-for-wasapi-interop.md) |
 | Test framework | xUnit, plus a two-node in-process harness | [0006](adr/0006-xunit-and-two-node-harness.md) |
 | Product name | `SoloSpeaker` everywhere | [0007](adr/0007-solospeaker-naming.md) |
+| Pairing transfer | Bundle file out, roster ID back on B's first heartbeat | [0011](adr/0011-pairing-bundle-file.md) |
+| Second instance | Named mutex, taken before ledger replay | [0012](adr/0012-single-instance-guard.md) |
+| `pairKey` at rest | DPAPI on that field only | [0013](adr/0013-dpapi-protects-pairkey-only.md) |
+| Tray icons | Differentiated by silhouette | [0014](adr/0014-tray-icons-by-shape.md) |
+| Diagnostics | Local rolling log, drops aggregated per minute | [0015](adr/0015-local-rolling-log.md) |
+| Departure | `bye` field in wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) |
 
 `design.md` §9.1's D-1, D-2, and D-3 are carried forward unchanged as
 [0008](adr/0008-external-unmute-is-a-manual-claim.md),
@@ -190,7 +196,8 @@ path and the `state.json`-deleted case; these are added:
 
 ### 4.6 Tests the design's §10 does not include
 
-Added because the design states the behaviour but never asks anyone to check it:
+Added because the design states the behaviour but never asks anyone to check it, or
+because an ADR in §1 introduced it:
 
 - hotkey registration failure raises `error` (§7.4 requires this; §10 never tests it)
 - a state change triggers an immediate extra broadcast, not just the next 2 s beat (§7.1)
@@ -200,23 +207,36 @@ Added because the design states the behaviour but never asks anyone to check it:
   the self-feedback loop D-1 is prone to (§7.3)
 - an external unmute *after* 250 ms *is* read as a manual claim
 - every `TrayState` value has at least one producer, so §7.4's table cannot rot
+- every `TrayState` value maps to a distinct icon resource (ADR 0014)
+- an accepted `bye` clears presence immediately and **leaves `activeOwner` untouched**
+  (ADR 0016) — the property that keeps §5.2 intact
+- a `bye` failing any ingress check is dropped like any other datagram
+- a datagram missing `bye` is a version mismatch, not `false`
+- pairing mode enrolls an unknown `machineId` only while the roster is incomplete *and*
+  the window is open, and only after the HMAC check passes (ADR 0011)
+- pairing mode expiring with an incomplete roster raises `error`, and that machine can
+  never mute
+- a `config.json` whose `pairKeyProtected` cannot be decrypted raises `error` with a
+  re-pair cause, rather than crashing or falling back (ADR 0013)
+- ingress drops are aggregated per minute by reason rather than logged per datagram
+  (ADR 0015) — asserted on a burst, because the failure mode is a log that floods
 
-### 4.7 Spike S-0 — run this before writing phase 1 code
+### 4.7 §9.2-3 — deferred to phase 2, by decision
 
 `design.md` §9.2-3 records an unverified, load-bearing assumption: that muting the render
-endpoint does not affect capture sessions. The design says it must be confirmed before
-phase 2 is considered done.
+endpoint does not affect capture sessions. The whole auto-claim loop rests on it.
 
-**Recommendation: confirm it before phase 1 starts instead.** It is perhaps half a day of
-work — mute the render endpoint by hand, join a call, watch whether the capture session
-survives — and the cost of being wrong is not a phase-2 bug. If render-mute *does* disturb
-capture sessions, the auto-claim loop cannot work as designed, and the phase boundary in
-§8 may need to move. Learning that after phase 1 has shipped to both machines is the
-expensive version of the same discovery.
+A standalone spike before phase 1 was considered and **declined**: it will be verified
+against the running app in phase 2 instead, via manual matrix row H5.
 
-The same spike should confirm that `IAudioSessionManager2::GetSessionEnumerator` on the
-capture endpoint reports a real Teams/Zoom call at all, since everything in phase 2 rests
-on it.
+That is a deliberate acceptance of a specific risk, so it is worth stating plainly rather
+than burying. If the assumption turns out to be false, the discovery arrives after phase 1
+has shipped to both machines, and the response is a phase-2 redesign of the claim path
+rather than a phase-boundary adjustment made cheaply up front. Row H5 is therefore the
+highest-value row in the matrix, and it should be run first among the phase-2 rows rather
+than in listed order.
+
+Nothing in phase 1 depends on the answer, which is what makes the deferral tenable.
 
 ---
 
@@ -237,8 +257,15 @@ on it.
 `windows-latest` is required rather than convenient: `SoloSpeaker.App` targets
 `net10.0-windows`, and CsWin32 generates against the Windows SDK.
 
-**What CI is not.** It is not a release gate on its own. A release is gated by CI green
-*and* a signed-off manual matrix run on both machines.
+**What CI is not.** Work lands by direct push to `main`, so CI reports *after* the fact
+rather than gating anything. That is a deliberate choice for a single-author repository,
+but it changes what the badge means: a red `main` is possible, and nothing prevents it.
+The `pull_request` trigger is kept anyway, so opening a PR gets pre-merge signal on the
+occasions it is wanted.
+
+Release readiness is therefore self-enforced: CI green on the commit being shipped, plus a
+completed [`manual-test-matrix.md`](manual-test-matrix.md) run. Neither is mechanically
+required, and both matter more here than usual — §4.1 is the reason.
 
 ---
 
@@ -274,11 +301,24 @@ Two details are load-bearing:
 ### 6.3 Pairing
 
 Once, after installing on both. The ceremony produces `pairId`, `pairKey`, and the
-two-entry roster (§7.7). Until both machines are paired, neither will ever mute: an
-unpaired machine has no roster, so §5.5's positive predicate is false and both stay
-audible. That is the correct behaviour and a useful property during rollout.
+two-entry roster (§7.7), by the mechanism settled in
+[ADR 0011](adr/0011-pairing-bundle-file.md):
 
-**The transfer mechanism for step 2 is unresolved — see §8.1.**
+```powershell
+# On the first machine
+SoloSpeaker.exe --pair-init            # writes pairing.json, opens a 10-minute window
+
+# Copy pairing.json to the second machine by any means, then
+SoloSpeaker.exe --pair-join .\pairing.json
+```
+
+B's first ordinary heartbeat completes A's roster. Both machines then display an
+8-hex-character fingerprint; compare them by eye. Both delete `pairing.json` — it is the
+one moment `pairKey` exists outside the two configs.
+
+Until both machines are paired, neither will ever mute: an unpaired machine has no
+complete roster, so §5.5's positive predicate is false and both stay audible. That is the
+correct behaviour and a useful property during rollout.
 
 ### 6.4 Update
 
@@ -324,71 +364,64 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 
 | # | Work | Done when |
 |---|---|---|
-| **S-0** | Spike: §9.2-3 empirical check, plus capture-session enumeration against a real call | Written up in `docs/`; §9.2-3 either closed or the phase boundary revisited |
 | 1 | `MachineId`, `Roster`, ordinal comparison | `RosterTests` green, including the case-only mismatch |
-| 2 | Wire format v1: canonicalization, HMAC, parse, ingress order | Golden vectors + fuzzer green; `wire-format.md` filled in |
+| 2 | Wire format v1: canonicalization, HMAC, parse, ingress order, **`bye`** | Golden vectors + fuzzer green; `wire-format.md` filled in |
 | 3 | `StateMachine` reducer | All of §4.2 green |
 | 4 | Two-node in-process harness | All of §4.3 green |
-| 5 | `StateStore` + config, atomic write, cross-file `pairId` check | §4.5's state rows green |
-| 6 | `PeerLink` over real UDP | Two instances on one host, separate config roots and ports, exchange state |
+| 5 | `StateStore` + config, atomic write, cross-file `pairId` check, **DPAPI on `pairKey`** | §4.5's state rows green; a config from another profile raises `error`, not a crash |
+| 6 | `PeerLink` over real UDP, including `bye` on graceful exit | Two instances on one host, separate config roots and ports, exchange state |
 | 7 | `MuteActuator` + ledger + `--restore` + `IMMNotificationClient` | §4.5's ledger rows green; headset swap re-targets by hand |
-| 8 | Tray: five states, named producers, hotkey, sticky `error` | Every state reachable and observed; registration failure raises `error` |
-| 9 | Pairing ceremony | Two machines paired from scratch, §8.1 resolved |
-| 10 | Quarantine: cold start, resume, network-change restart | Lid-open does not move the mute |
-| 11 | Packaging: publish, install, uninstall, logon task | Clean install → reboot → still working → clean uninstall |
-| 12 | Manual matrix sign-off | [`manual-test-matrix.md`](manual-test-matrix.md) fully signed |
+| 8 | **Logging** (ADR 0015), with per-minute ingress-drop aggregation | Ownership changes name their source; a version mismatch is distinguishable from an absent peer |
+| 9 | Tray: five states, **icons** (ADR 0014), named producers, hotkey, sticky `error` | Every state reachable and observed; registration failure raises `error` |
+| 10 | Pairing ceremony (ADR 0011), including pairing-mode ingress exception | Two machines paired from scratch; fingerprints match |
+| 11 | Quarantine: cold start, resume, network-change restart | Lid-open does not move the mute |
+| 12 | **Single-instance guard** (ADR 0012), then packaging: publish, install, uninstall, logon task | Second launch exits without touching the ledger; clean install → reboot → still working → clean uninstall |
+| 13 | Manual matrix sign-off | [`manual-test-matrix.md`](manual-test-matrix.md) fully signed |
 
 Step 6 is worth a note: a good deal of PeerLink can be exercised on one machine by running
 two instances with separate config roots and ports. It does not cover subnet broadcast
-behaviour, but it covers the pipeline above the socket.
+behaviour, but it covers the pipeline above the socket. Note that step 12's guard uses a
+single named mutex, so the two-instance technique needs the guard scoped by config root
+rather than by machine — decide that when step 12 lands, not before.
 
-## 8. Open items this plan could not close
+Step 8 comes before the tray deliberately. Bringing up five icon states without a log is
+harder than it needs to be, and the log is what makes step 10's pairing failures legible.
 
-These are gaps in `design.md`, not choices deferred by this plan. Each needs a decision
-before the step that depends on it.
+## 8. Open items — all resolved
 
-### 8.1 Pairing transfer mechanism — blocks step 9
+Six gaps in `design.md` were identified while writing this plan. All are now settled by
+ADRs, and the resolutions are folded into §7's work breakdown above.
 
-§7.7 step 2 says "the two exchange roster IDs" without saying how, and step 1 says machine
-A "displays them as a short code or QR". A short code cannot work: `pairId` (128 bits) plus
-`pairKey` (256 bits) plus a roster ID (128 bits) is 512 bits, or about 103 base32
-characters. That is not hand-typeable.
+| Was | Resolution | ADR |
+|---|---|---|
+| §8.1 Pairing transfer unspecified | Bundle file to B; B's roster ID returns on its ordinary first heartbeat, accepted while A's roster is incomplete and its pairing window is open. **No new wire message type** | [0011](adr/0011-pairing-bundle-file.md) |
+| §8.2 No single-instance guard | Named mutex `Local\SoloSpeaker`, acquired **before** ledger replay | [0012](adr/0012-single-instance-guard.md) |
+| §8.3 `pairKey` in plaintext | DPAPI protects the `pairKey` field only; the rest of `config.json` stays readable | [0013](adr/0013-dpapi-protects-pairkey-only.md) |
+| §8.4 No tray icon assets | Five icons differentiated by silhouette, colour as reinforcement only | [0014](adr/0014-tray-icons-by-shape.md) |
+| §8.5 No diagnostics | Rolling local log; **ingress drops aggregated per minute by reason** | [0015](adr/0015-local-rolling-log.md) |
+| §8.6 Asymmetric unmute latency | `bye` field added to wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) |
 
-The realistic options are a bundle file copied by hand, or an in-band exchange over the
-LAN. The second direction — B's roster ID reaching A — is unspecified in either case.
+Three of these turned out to be sharper than they first looked, and the reasoning is worth
+keeping visible:
 
-### 8.2 Single-instance guard — blocks step 11
+**§8.6 was a now-or-never decision, not an optional improvement.** `design.md` §8 freezes
+the wire format in phase 1 so that nothing on the wire becomes a two-machine migration. A
+`bye` field added later costs exactly the coordinated update that phase re-cut exists to
+prevent. Filing it as "nice to have" would have quietly converted it into "never, without
+a version bump".
 
-Nothing in the design prevents two copies running on one machine. Two instances would both
-reconcile the same endpoint every tick and both write the ledger, which is a live-lock on
-the mute state and a corrupted recovery record. The logon task plus a manual launch makes
-this reachable in ordinary use, not just in testing.
+**§8.1 needed no new wire message.** The obvious design — a dedicated pairing datagram —
+would itself have had to be frozen into v1. Reusing B's ordinary heartbeat, with a bounded
+pairing-mode exception to ingress step 3, avoids adding anything to a format that is about
+to be frozen. Authentication is unaffected: the HMAC check still runs first, so enrollment
+still requires possession of `pairKey`.
 
-### 8.3 `pairKey` at rest — blocks step 5
+**§8.2's ordering is the substance.** A second instance is not merely redundant. Starting
+while the first holds a legitimate mute, it would replay the ledger, restore the endpoint,
+and clear the entry — leaving the first instance holding a mute whose recovery record no
+longer exists. A hard kill after that strands the endpoint permanently. The guard must
+precede ledger replay, which slightly qualifies §7.3's "before anything else".
 
-§7.5 puts `pairKey` in `config.json` in plaintext under `%LOCALAPPDATA%`. DPAPI
-(`ProtectedData`, per-user scope) would encrypt it at rest for very little code. The design
-does not say either way. Whatever is chosen, `config.json` is in `.gitignore` already so it
-cannot be committed.
-
-### 8.4 Tray icon assets — blocks step 8
-
-Five visually distinct states are required by §7.4 and no icon assets exist or are
-specified. They need to be distinguishable at 16 px, and `muted` versus `alone` is the pair
-most likely to be confused precisely when it matters.
-
-### 8.5 Diagnostics and logging — blocks step 8
-
-Nothing in the design says where logs go. This matters most for §9.2-2, the always-on mic
-consumer, whose failure mode is explicitly silent: the discovery UI helps only once you
-suspect the problem. A rolling local log of ownership changes, claim sources, and denylist
-hits is what makes that diagnosable after the fact.
-
-### 8.6 Asymmetric unmute latency — §9.2-5, optional
-
-The design records that muting is immediate but unmuting after peer loss takes up to the
-10 s presence window, and calls it bounded rather than fixed. A "goodbye" datagram on
-graceful exit would collapse that to near-zero for the common case of deliberately
-shutting a machine down. It does not help with power loss or a machine carried out of
-range, so it narrows the window rather than closing it. Not proposed as a change — recorded
-because the design considered the problem without considering this mitigation.
+`design.md` §9.2's risk register is otherwise unchanged. §9.2-3 — whether render-mute
+disturbs capture sessions — remains open by decision: it will be verified against the
+running app in phase 2 rather than by a standalone spike.

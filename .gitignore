@@ -32,6 +32,7 @@ config.json
 state.json
 ledger.json
 pairing.json
+logs/
 
 # OS noise
 Thumbs.db

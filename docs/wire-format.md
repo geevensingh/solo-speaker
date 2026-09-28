@@ -29,6 +29,7 @@ correct behaviour, safe behaviour, and completely misleading.
   "seq": 41,
   "activeOwner": "2d81e4…",
   "micLive": false,
+  "bye": false,
   "sentUtc": "2026-09-25T21:07:33.118Z",
   "mac": "…"
 }
@@ -42,6 +43,7 @@ correct behaviour, safe behaviour, and completely misleading.
 | `seq` | integer | Lamport clock. Orders by *event count*, never wall-clock time |
 | `activeOwner` | hex string, 32 chars | A roster ID. Never a hostname (§5.3) |
 | `micLive` | boolean | **Always emitted explicitly**, including phase 1 where it is `false` |
+| `bye` | boolean | Deliberate departure. Clears peer presence immediately; **never** alters `activeOwner`. See [ADR 0016](adr/0016-goodbye-datagram-in-v1.md) |
 | `sentUtc` | ISO 8601 UTC, ms | Informational and logged only. **Never a drop condition** |
 | `mac` | hex string, 64 chars | HMAC-SHA256 over the canonical form, keyed by `pairKey` |
 
@@ -73,7 +75,7 @@ the **first** failure, which is what the ingress tests assert.
 2. Invalid `mac` → drop, silent
 3. `machineId` not in the roster → drop, silent
 4. `seq` exceeds `localSeq` by more than 1000 → drop, raise `error`
-5. Missing or unparseable `micLive` → version mismatch, raise `error`
+5. Missing or unparseable `micLive` or `bye` → version mismatch, raise `error`
 
 Only then is the datagram processed by §5.4's convergence rules.
 
@@ -81,6 +83,35 @@ Steps 1–3 are silent by design. They are the expected result of ordinary traff
 another pairing or another application on the same port, and raising `error` for them
 would make the tray icon meaningless. Step 4 is loud because it is either corruption or an
 attack, and it is the case that could otherwise pin ownership permanently.
+
+Drops are counted and logged **aggregated per minute by reason**, never one line per
+datagram — see [ADR 0015](adr/0015-local-rolling-log.md). A rate change by reason is the
+signal that distinguishes a wire-version mismatch from a switched-off peer.
+
+## Pairing-mode exception to step 3
+
+During the bounded pairing window ([ADR 0011](adr/0011-pairing-bundle-file.md)), a machine
+whose roster holds one entry replaces step 3 with "enroll this `machineId`" instead of
+"drop". Steps 1, 2, 4, and 5 are unchanged, so enrollment still requires a valid HMAC and
+therefore possession of `pairKey`.
+
+This is why pairing needs no message type of its own: roster completion rides on B's
+ordinary first heartbeat. A dedicated pairing datagram would have had to be designed and
+frozen into v1 alongside everything else.
+
+## Departure
+
+`bye: true` is sent on graceful exit, logoff, and shutdown — three times, about 50 ms
+apart, because UDP offers no retry and no further heartbeat is coming.
+
+A receiver that accepts a `bye` clears peer presence immediately rather than waiting out
+the 10 s window, which collapses the asymmetry `design.md` §9.2-5 calls "the wrong way
+round given Goal 1". It does **not** touch `activeOwner`: §5.2 is explicit that a peer
+disappearing never moves ownership, and a `bye` is a peer disappearing with better
+manners.
+
+A forged `bye` causes an unmute, which is the safe direction and no worse than the replay
+§7.1 already accepts.
 
 ## Bounds
 
@@ -107,11 +138,13 @@ is almost always yes.
 
 | Vector | Covers |
 |---|---|
-| `v1-baseline` | Nominal datagram, `micLive: false`, mid-range `seq` |
+| `v1-baseline` | Nominal datagram, `micLive: false`, `bye: false`, mid-range `seq` |
 | `v1-miclive-true` | Phase 2 shape, proving phase 1 and 2 are wire-compatible |
+| `v1-bye` | `bye: true`, the departure datagram |
 | `v1-seq-zero` | `seq: 0`, guarding leading-zero and empty-integer formatting |
 | `v1-seq-max` | `seq` at `uint64.Max`, the §5.4 bound case |
 | `v1-owner-is-peer` | `activeOwner` naming the other roster entry |
 | `v1-owner-unknown` | `activeOwner` outside the roster → both audible, `error` |
 | `v1-bad-mac` | One flipped bit in `mac` → dropped at ingress step 2 |
 | `v1-missing-miclive` | Field absent → version mismatch, **never** inferred as `false` |
+| `v1-missing-bye` | Field absent → version mismatch, **never** inferred as `false` |
