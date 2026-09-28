@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SoloSpeaker.App/SoloSpeaker.App.csproj" />
+    <Project Path="src/SoloSpeaker.Core/SoloSpeaker.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SoloSpeaker.Core.Tests/SoloSpeaker.Core.Tests.csproj" />
+  </Folder>
+</Solution>

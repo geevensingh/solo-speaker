@@ -1,4 +1,4 @@
-# Proximity Mute Coordinator — Design Plan
+# SoloSpeaker — Design Plan
 
 **Status:** Revision 2 — incorporates adversarial review findings DR-001…DR-006
 **Author:** drafted with Copilot, 2026-09-25
@@ -12,6 +12,13 @@
 > (§7.3, §7.6); and §8's phases are re-cut so that every wire-format, pairing, and
 > persisted-schema decision lands in phase 1. Three decisions previously left open are now
 > recorded in §9 and marked for confirmation.
+
+> **Naming, 2026-09-27.** The product is `SoloSpeaker`, and this document was retitled
+> from "Proximity Mute Coordinator" with its `%LOCALAPPDATA%` paths updated to match. No
+> design decision changed. See [`adr/0007-solospeaker-naming.md`](adr/0007-solospeaker-naming.md).
+> How this design gets built, tested, and deployed is
+> [`implementation-plan.md`](implementation-plan.md); §8.1–§8.6 there list the gaps this
+> document does not cover.
 
 ---
 
@@ -313,7 +320,7 @@ fallback if WASAPI enumeration proves unreliable for some app.
 Revision 1 recorded nothing about those mutations, which made an orphaned muted endpoint a
 certainty of ordinary use rather than an edge case, and left no way to recover one after
 the app was gone. Every endpoint this app has muted is therefore recorded, before the
-mutation, to `%LOCALAPPDATA%\MuteCoordinator\ledger.json`:
+mutation, to `%LOCALAPPDATA%\SoloSpeaker\ledger.json`:
 
 ```json
 { "endpointId": "{0.0.0.00000000}.{9c8…}", "priorMute": false, "mutedAtUtc": "…" }
@@ -367,7 +374,7 @@ loop this option is prone to.
 
 ### 7.5 StateStore — persistence
 
-- `(activeOwner, seq)` written to `%LOCALAPPDATA%\MuteCoordinator\state.json` on every
+- `(activeOwner, seq)` written to `%LOCALAPPDATA%\SoloSpeaker\state.json` on every
   change, written atomically (temp file + `File.Replace`).
 - Loaded at startup so a reboot doesn't reset arbitration.
 - `config.json` alongside it holds `pairId`, `pairKey`, the roster, port, hotkey, denylist,

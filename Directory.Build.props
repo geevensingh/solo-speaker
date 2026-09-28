@@ -1,0 +1,32 @@
+<Project>
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+
+  <!--
+    design.md 5.3 requires that every roster-ID comparison is ordinal, with no
+    casing, culture, or normalization semantics anywhere in the path. Invariant
+    globalization removes culture-sensitive behaviour from the runtime entirely,
+    so a culture-sensitive comparison cannot be introduced by accident.
+  -->
+  <PropertyGroup>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <Product>SoloSpeaker</Product>
+    <Company>geevensingh</Company>
+    <Copyright>Copyright (c) geevensingh</Copyright>
+    <RepositoryUrl>https://github.com/geevensingh/solo-speaker</RepositoryUrl>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,14 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Deliberately targets net10.0, not net10.0-windows. design.md 6 makes the
+    state machine a pure reducer with all I/O at the edges; a platform-neutral
+    target framework enforces that at compile time, because nothing Windows-
+    specific can be referenced here even by accident.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>SoloSpeaker.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>

@@ -1,0 +1,39 @@
+# Build output
+bin/
+obj/
+artifacts/
+publish/
+*.binlog
+
+# Visual Studio / Rider / VS Code
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Test and coverage output
+TestResults/
+coverage/
+*.coverage
+*.coverlet.json
+*.trx
+
+# NuGet
+*.nupkg
+packages/
+
+# Local machine state. These are the files design.md 7.5 writes to
+# %LOCALAPPDATA%; if one is ever produced inside the working tree during a test
+# run it must not be committed, because config.json holds pairKey.
+config.json
+state.json
+ledger.json
+pairing.json
+
+# OS noise
+Thumbs.db
+desktop.ini
+.DS_Store
