@@ -1,8 +1,12 @@
 # Wire Format v1
 
-Normative reference for the PeerLink datagram of `design.md` §7.1. This document is the
-source of truth for canonicalization; the golden vectors below are checked in as test
-data, and the test that reads them is what keeps this file honest.
+Normative reference for the **byte form** of the PeerLink datagram of `design.md` §7.1 -
+its fields, its canonicalization, its bounds, and the golden vectors that freeze them.
+
+**Ingress is not specified here.** `design.md` §7.1 owns the validation pipeline and is
+the only normative list for it. That division exists because revisions 3 and 4 had both
+documents specifying ingress with different step counts, and the repository's own
+precedence rule then deleted behaviour the pairing ceremony depends on.
 
 **Version 1 is frozen.** `design.md` §8 draws the phase boundary *around* the wire format
 for a specific reason: everything that touches the wire lands in phase 1 whether or not
@@ -18,6 +22,10 @@ This is the failure mode worth fearing, because it is silent. A canonicalization
 produces datagrams the peer rejects, the peer reports no peer, and §5.5 leaves both
 machines audible. The symptom is byte-identical to "the other machine is switched off" -
 correct behaviour, safe behaviour, and completely misleading.
+
+It is also why a wire-version bump cannot be detected per datagram: the same property that
+makes the `mac` meaningful makes an unverifiable datagram's `v` untrustworthy. §7.1's
+rate-based producer is the compensating control.
 
 ## Payload
 
@@ -37,7 +45,7 @@ correct behaviour, safe behaviour, and completely misleading.
 
 | Field | Type | Notes |
 |---|---|---|
-| `v` | integer | Format version. An unknown value is a version mismatch -> `error` |
+| `v` | integer | Format version. From an **authenticated** peer, an unknown value raises `error` (§7.1). An unverifiable one cannot be read at all |
 | `pairId` | hex string, 32 chars | 128-bit pairing GUID. Transmitted; scopes the namespace |
 | `machineId` | hex string, 32 chars | Sender's 128-bit roster ID |
 | `seq` | integer | Lamport clock. Orders by *event count*, never wall-clock time |
@@ -66,42 +74,28 @@ captured packet was enough to forge every subsequent one.
 9. No field is ever omitted. A missing field is a version mismatch, never a default -
    this is explicit in §7.1 for `micLive` and is applied to all fields here.
 
-## Ingress order
+## Ingress
 
-Per §7.1, in exactly this order. A datagram failing more than one check is attributed to
-the **first** failure, which is what the ingress tests assert.
+**`design.md` §7.1 owns ingress and is the only normative list.** It is not duplicated
+here, because two documents specifying the same pipeline is how the §7.7 pairing exception
+came to be missing from the authoritative one - see issue #2.
 
-1. `pairId` mismatch -> drop, silent
-2. Invalid `mac` -> drop, silent
-3. `machineId` not in the roster -> drop, silent
-4. `seq` exceeds `localSeq` by more than 1000 -> drop, raise `error`
-5. Missing or unparseable `micLive` or `bye` -> version mismatch, raise `error`
+What this document owns, and §7.1 relies on:
 
-Only then is the datagram processed. **Where it goes next depends on `bye`:**
+- the canonical byte form the `mac` is computed over (above)
+- the bounds below
+- the golden vectors
 
-- `bye: false` -> §5.4's convergence rules, as normal.
-- `bye: true` -> the presence layer **only**. It never reaches §5.4, and its `seq` and
-  `activeOwner` are ignored in both directions of ordering. See Departure below.
-
-Steps 1-3 are silent by design. They are the expected result of ordinary traffic from
-another pairing or another application on the same port, and raising `error` for them
-would make the tray icon meaningless. Step 4 is loud because it is either corruption or an
-attack, and it is the case that could otherwise pin ownership permanently.
+One consequence of canonicalization is worth stating where the canonicalizer lives. Because
+the `mac` covers the canonical form, **a receiver that cannot verify a datagram cannot
+trust any field inside it, including `v`.** A peer on a later wire version produces a
+different canonical form and therefore fails the `mac` check, so a version bump and a key
+mismatch look identical per datagram. §7.1 handles that with a rate-based producer rather
+than a per-datagram one; do not reintroduce a version check ahead of the `mac` here.
 
 Drops are counted and logged **aggregated per minute by reason**, never one line per
-datagram - see [ADR 0015](adr/0015-local-rolling-log.md). A rate change by reason is the
-signal that distinguishes a wire-version mismatch from a switched-off peer.
-
-## Pairing-mode exception to step 3
-
-During the bounded pairing window ([ADR 0011](adr/0011-pairing-bundle-file.md)), a machine
-whose roster holds one entry replaces step 3 with "enroll this `machineId`" instead of
-"drop". Steps 1, 2, 4, and 5 are unchanged, so enrollment still requires a valid HMAC and
-therefore possession of `pairKey`.
-
-This is why pairing needs no message type of its own: roster completion rides on B's
-ordinary first heartbeat. A dedicated pairing datagram would have had to be designed and
-frozen into v1 alongside everything else.
+datagram - see [ADR 0015](adr/0015-local-rolling-log.md). The rate of `pairId`-matching,
+`mac`-failing drops is the signal §7.1's unverifiable-peer producer reads.
 
 ## Departure
 

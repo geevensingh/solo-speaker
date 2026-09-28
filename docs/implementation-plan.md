@@ -1,6 +1,6 @@
 # SoloSpeaker - Implementation Plan
 
-**Status:** Revision 3 - written against `design.md` revision 4
+**Status:** Revision 3 - written against `design.md` revision 5
 **Covers:** phase 1 only, plus the standing test and deployment machinery that phases 2
 and 3 inherit
 **Companions:** [`manual-test-matrix.md`](manual-test-matrix.md) -
@@ -8,15 +8,16 @@ and 3 inherit
 [`adr/`](adr/)
 
 > The four blocking findings of [`review-2026-09-28.md`](review-2026-09-28.md) are
-> **fixed**. `design.md` is at revision 4, the `bye` semantics are corrected, the uninstall
-> script aborts rather than deleting behind a failed repair, and the seam set is redrawn so
-> §4.1's claims about what CI can prove are now true. The deferred findings remain open as
-> issues #1 through #7.
+> **fixed**, and issues #1 and #2 are closed. `design.md` is at revision 5: the `bye`
+> semantics are corrected, §7.1 owns ingress outright with a version-mismatch producer that
+> can actually fire, the uninstall script aborts rather than deleting behind a failed
+> repair, and the seam set is redrawn so §4.1's claims about what CI can prove are now
+> true. Issues #3 through #7 remain open.
 
 This plan answers three questions the design deliberately left alone: how the thing gets
 built, how it gets tested, and how it gets onto the two machines. It does not restate the
-design, and where the two disagree the design wins - except for the items in §8, which
-are gaps the design does not cover at all.
+design, and where the two disagree the design wins - including for ingress, which
+`design.md` §7.1 owns outright.
 
 ---
 
@@ -199,10 +200,15 @@ byte-identical to "the peer is switched off."
   in [`wire-format.md`](wire-format.md). Any change to field order, number formatting,
   or whitespace fails the test. Changing a vector is therefore a deliberate, reviewable
   act that forces the version question.
-- **Ingress-order tests.** §7.1 fixes the order: `pairId` mismatch -> bad `mac` ->
-  `machineId` outside roster -> `seq` delta over bound. Each rejection reason is asserted
-  independently, and asserted to fire *in that order*, because a datagram failing two
-  checks must be attributed to the first.
+- **Ingress-order tests.** `design.md` §7.1 fixes the order: `pairId` mismatch -> bad
+  `mac` -> `machineId` outside roster -> `seq` delta over bound -> unknown `v` or missing
+  field. Each rejection reason is asserted independently, and asserted to fire *in that
+  order*, because a datagram failing two checks must be attributed to the first.
+- **The unverifiable-peer producer.** §7.1 raises `error` on sustained `pairId`-matching,
+  `mac`-failing traffic *while nothing valid is being accepted*. Both halves are tested:
+  the producer fires when the peer has genuinely gone silent, and does **not** fire while
+  valid datagrams are still arriving - because `pairId` is public and a stranger must not
+  be able to disable the tray.
 - **Fuzzing.** §10's hostile block lists four cases. A property-based fuzzer over the
   parser is cheap and covers far more: truncation, oversized fields, duplicate keys,
   nested objects, non-UTF8 bytes, `seq` at boundaries. The invariant asserted is not
@@ -432,6 +438,9 @@ Critical defects. See [`review-2026-09-28.md`](review-2026-09-28.md).
 | §8.4 No tray icon assets | Five icons differentiated by silhouette, colour as reinforcement only | [0014](adr/0014-tray-icons-by-shape.md) | H-8, and no assets exist |
 | §8.5 No diagnostics | Rolling local log; **ingress drops aggregated per minute by reason** | [0015](adr/0015-local-rolling-log.md) | M-5 |
 | §8.6 Asymmetric unmute latency | `bye` field added to wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) | **B-1, B-2 were Critical; both fixed in `design.md` revision 4** |
+
+Issues #1 and #2 - the unreachable version-mismatch producer and the two competing ingress
+lists - are also closed, in `design.md` revision 5.
 
 Three of these turned out to be sharper than they first looked, and the reasoning is worth
 keeping visible:

@@ -98,22 +98,24 @@ someone "helpfully" making it a function of current conditions.
 
 ## F. Network and hostile input
 
-F2-F5 need a small sender script; see [`wire-format.md`](wire-format.md) for the golden
+F2-F7 and F12 need a small sender script; see [`wire-format.md`](wire-format.md) for the golden
 vectors to mutate.
 
 | # | Steps | Expected | Result | Notes |
 |---|---|---|---|---|
 | F1 | Put `D` and `L` on different subnets while physically adjacent | Both stay audible. Recorded as §9.2-1's opposite direction | | |
 | F2 | Send a datagram with a wrong `pairId` | Dropped silently. No state change, no `error` | | |
-| F3 | Send a correct `pairId` with an invalid `mac` | Dropped. This is the case revision 1's HMAC could not catch | | |
-| F4 | Send a valid `mac` with a `machineId` outside the roster | Dropped | | |
-| F5 | Send a valid datagram with `seq = uint64.Max` | Dropped, `error` raised. **Persisted state on both machines is unchanged** | | |
-| F6 | Replay a captured valid datagram inside the presence window | Accepted per §7.1. Confirm the blast radius stays bounded | | |
-| F7 | Replay a captured `bye` datagram | Peer presence clears and the machine unmutes - the safe direction. **`activeOwner` must not move** | | |
-| F8 | Replay a captured `bye` whose `seq` is higher than the receiver's | Still no ownership change. A `bye` bypasses §5.4 in both directions of ordering | | |
-| F9 | Flood replayed `bye`s at ~1 Hz during a rejoin window | The quarantine observation latch holds; the rejoining machine adopts its peer's state at expiry rather than asserting stale ownership | | |
-| F10 | Send 5,000 malformed datagrams in one minute | Log shows one aggregated line per reason, not 5,000 lines | | |
-| F11 | Leave `L` in another room on the same Wi-Fi | `L` is treated as present and will be muted. Known limitation §9.2-1 - confirm it is the *only* surprise | | |
+| F3 | Send a correct `pairId` with an invalid `mac` | Dropped silently. This is the case revision 1's HMAC could not catch | | |
+| F4 | Sustain F3 for a minute **while the real peer is switched off** | Tray raises `error`, cause "peer unverifiable". This is the wire-version-mismatch signal | | |
+| F5 | Sustain F3 for a minute **while the real peer is running normally** | **No `error`.** `pairId` is public; a stranger must not be able to disable the tray | | |
+| F6 | Send a valid `mac` with a `machineId` outside the roster | Dropped | | |
+| F7 | Send a valid datagram with `seq = uint64.Max` | Dropped, `error` raised. **Persisted state on both machines is unchanged** | | |
+| F8 | Replay a captured valid datagram inside the presence window | Accepted per §7.1. Confirm the blast radius stays bounded | | |
+| F9 | Replay a captured `bye` datagram | Peer presence clears and the machine unmutes - the safe direction. **`activeOwner` must not move** | | |
+| F10 | Replay a captured `bye` whose `seq` is higher than the receiver's | Still no ownership change. A `bye` bypasses §5.4 in both directions of ordering | | |
+| F11 | Flood replayed `bye`s at ~1 Hz during a rejoin window | The quarantine observation latch holds; the rejoining machine adopts its peer's state at expiry rather than asserting stale ownership | | |
+| F12 | Send 5,000 malformed datagrams in one minute | Log shows one aggregated line per reason, not 5,000 lines | | |
+| F13 | Leave `L` in another room on the same Wi-Fi | `L` is treated as present and will be muted. Known limitation §9.2-1 - confirm it is the *only* surprise | | |
 
 ## G. Install, update, uninstall
 
@@ -127,7 +129,7 @@ vectors to mutate.
 | G6 | Confirm `pairing.json` is gone from both machines after G3 | Deleted on both sides. It is the only place `pairKey` exists in cleartext | | |
 | G7 | Run `install.ps1` over a running instance | Running instance stops gracefully and restores audio *before* the binary is replaced | | |
 | G8 | Stop both, update both, start both | No mixed-version window; normal operation resumes | | |
-| G9 | Update one machine only, with an incompatible wire version | Peer sees no peer, both audible. **The log must show a bad-MAC or version-mismatch drop rate, distinguishing this from an absent peer** | | |
+| G9 | Update one machine only, with an incompatible wire version | Peer sees no peer, both audible. **The tray raises `error` with cause "peer unverifiable", and the log shows a sustained `pairId`-matching `mac`-failure rate** - which is what distinguishes this from a switched-off peer | | |
 | G10 | `uninstall.ps1` while muted | Audio restored, task removed, `config.json` deleted | | |
 | G11 | `uninstall.ps1 -KeepConfig`, then reinstall | Pairing survives; no second ceremony needed | | |
 

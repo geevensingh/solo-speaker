@@ -1,8 +1,25 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 4 - corrects the revision-3 `bye` semantics; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 5 - makes the version-mismatch signal reachable and gives §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 5 changes, 2026-09-28.** Closes issues #1 and #2 from the 2026-09-28 review.
+>
+> §7.1's ingress list is now **the only normative one**; `wire-format.md` keeps
+> canonicalization, bounds, and the golden vectors and defers here. Revisions 3 and 4 left
+> two documents specifying ingress with different step counts, and the stated precedence
+> rule silently deleted the §7.7 pairing exception - so an implementer building from the
+> authoritative document would have shipped a product that could not be paired.
+>
+> The version-mismatch `error` producer is rebuilt, because the one revisions 3 and 4
+> specified could never fire. The `mac` covers the canonical form, so an unverifiable
+> datagram's `v` cannot be trusted, and a later-version peer fails at the `mac` check
+> before any version check is reached. A version bump and a key mismatch are
+> indistinguishable per datagram; that is inherent. What is detectable is the *rate* of
+> `pairId`-matching, `mac`-failing traffic while nothing valid is being accepted - see
+> §7.1. The second clause keeps a public `pairId` from handing a stranger a
+> tray-disabling denial of service.
 
 > **Revision 4 changes, 2026-09-28.** The adversarial review recorded in
 > [`review-2026-09-28.md`](review-2026-09-28.md) found two Critical defects in revision 3's
@@ -291,11 +308,47 @@ Payload (JSON, ~200 bytes):
   could forge every subsequent one, and the authentication delivered none of the property
   it claimed. `pairKey` is generated at pairing and exists only on disk on the two
   machines.
-- **Ingress order:** drop on `pairId` mismatch -> drop on bad `mac` -> drop if `machineId`
-  is not in the roster -> drop if `seq` delta exceeds the §5.4 bound. Only then process.
+- **Ingress order.** This list is normative and is the only one. `wire-format.md` owns
+  canonicalization, bounds, and the golden vectors, and defers to this section for ingress.
+
+  1. `pairId` mismatch -> drop, silent.
+  2. Invalid `mac` -> drop, silent per datagram. See the unverifiable-peer producer below.
+  3. `machineId` not in the roster -> drop, silent. **Excepted during the §7.7 pairing
+     window**, where a machine whose roster holds one entry enrolls the sender instead.
+     Steps 1, 2, 4 and 5 are unchanged by that exception, so enrollment still requires a
+     valid `mac` and therefore possession of `pairKey`.
+  4. `seq` delta exceeds the §5.4 bound -> drop, raise `error`.
+  5. Unknown `v`, or a missing or unparseable field -> drop, raise `error`.
+
+  Then: `bye: true` goes to the presence layer only; `bye: false` goes to §5.4.
+
+  Steps 1-3 are silent because they are the expected result of ordinary foreign traffic on
+  the port, and an error icon that is always lit explains nothing. Steps 4 and 5 are loud
+  because they can only be corruption, an attack, or a peer this machine cannot work with.
+
+- **The unverifiable peer.** *(revision 5)* Step 5 cannot catch a wire-version mismatch,
+  and no ordering of these checks can. The `mac` covers the canonical form, so a receiver
+  that cannot verify a datagram cannot trust any field inside it - including `v` - and a
+  peer running a later version produces a different canonical form and therefore fails at
+  step 2. **A version bump and a key mismatch are indistinguishable per datagram.** That is
+  inherent, and revisions 3 and 4 both specified a step-5 producer that could never fire.
+
+  The signal that does exist is a rate. `pairId` is checked first and is transmitted in
+  cleartext, so a foreign datagram dies at step 1 while a version-mismatched peer dies at
+  step 2 *having passed step 1*. Sustained `pairId`-matching, `mac`-failing traffic is
+  therefore "something claims to be my pairing and I cannot verify any of it".
+
+  `error` is raised, with cause **"peer unverifiable - version or key mismatch"**, when
+  that traffic is sustained **and** no valid datagram has been accepted within the presence
+  window. The second clause is load-bearing: `pairId` is public, so without it any stranger
+  could pin the tray into a sticky `error` and destroy the only visible explanation for why
+  a machine is silent. If the real peer is still being heard, nothing is wrong.
+
 - **`micLive`** is always emitted explicitly, including in phase 1 where it is hardcoded
-  `false`. An absent field must never be inferred as `false`; a datagram missing it is
-  treated as a version mismatch and raises the `error` tray state.
+  `false`. An absent field must never be inferred as `false`. In practice a datagram
+  missing it fails at step 2 rather than step 5, because the sender that omitted it signed
+  something this receiver cannot reconstruct - which is exactly the unverifiable-peer case
+  above.
 - **`bye`** *(added revision 3, semantics corrected revision 4 - see
   [ADR 0016](adr/0016-goodbye-datagram-in-v1.md))* marks a deliberate departure. It is sent
   on graceful exit and on `WM_ENDSESSION` - never on the query phase, which the user can
@@ -422,7 +475,7 @@ loop this option is prone to.
 | `muted` | §5.5 predicate true |
 | `alone` | no peer heartbeat within the presence window |
 | `quarantine` | §7.6 rejoin window, state not yet reconciled |
-| `error` | `activeOwner` outside the roster; hotkey registration failure; `seq` bound exceeded; missing `micLive` (version mismatch); ledger replay failure; endpoint enumeration failure |
+| `error` | `activeOwner` outside the roster; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded; unknown `v` or a missing field from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile |
 
 - `error` is sticky until acknowledged and its tooltip names the specific cause. Because
   ownership is sticky, the tray is the only visible explanation for why a machine is
@@ -607,6 +660,11 @@ have failed without any authentication at all.
 - `seq` delta beyond the bound -> dropped, `error` raised
 - `micLive` absent from a datagram -> version mismatch, not `false`
 - `bye` absent from a datagram -> version mismatch, not `false`
+- sustained `pairId`-matching, `mac`-failing traffic with **nothing valid accepted** in the
+  presence window -> `error`, cause "peer unverifiable"
+- the same traffic **while valid datagrams are still arriving** -> no `error`; a public
+  `pairId` must not let a stranger disable the tray
+- unknown `v` from an authenticated peer -> `error`
 - an accepted `bye` **bypasses §5.4 entirely** - it moves `activeOwner` in neither
   direction of `seq` ordering, including when its `seq` is strictly higher
 - an accepted `bye` clears peer presence immediately, and presence is re-established only

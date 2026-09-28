@@ -92,10 +92,10 @@ Directory.Build.props          # shared compiler settings; warnings-as-errors
 global.json                    # SDK pin
 PSScriptAnalyzerSettings.psd1  # PowerShell lint config
 docs/
-  design.md                    # authoritative design spec
+design.md                    # authoritative design spec, including ingress (7.1)
   implementation-plan.md       # how it gets built, tested, deployed
   manual-test-matrix.md        # per-release checklist for what CI cannot reach
-  wire-format.md               # normative v1 datagram format, frozen
+wire-format.md               # normative v1 byte form, canonicalization, vectors
   review-2026-09-28.md         # adversarial review findings and remediation
   adr/                         # decision records
 src/
