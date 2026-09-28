@@ -2,7 +2,7 @@ namespace SoloSpeaker.Core.Abstractions;
 
 /// <summary>
 /// Raw datagram transport for PeerLink (<c>docs/design.md</c> §7.1). Authentication,
-/// roster checks, and the <c>seq</c> bound are <em>not</em> implemented here — they belong
+/// roster checks, and the <c>seq</c> bound are <em>not</em> implemented here - they belong
 /// to the ingress pipeline above this seam, so that the hostile-input tests of §10 can run
 /// against real bytes without a socket.
 /// </summary>

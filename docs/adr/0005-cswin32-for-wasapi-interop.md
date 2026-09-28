@@ -1,6 +1,6 @@
-# 0005 — CsWin32 for Win32 and COM interop
+# 0005 - CsWin32 for Win32 and COM interop
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 
 ## Context
 

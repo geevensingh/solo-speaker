@@ -1,12 +1,12 @@
-# 0013 — DPAPI protects `pairKey` only
+# 0013 - DPAPI protects `pairKey` only
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 **Resolves:** `implementation-plan.md` §8.3
 
 ## Context
 
-`design.md` §7.5 puts `pairKey` — the 256-bit secret the entire authentication scheme
-rests on — in `config.json` in cleartext, alongside `pairId`, the roster, port, hotkey,
+`design.md` §7.5 puts `pairKey` - the 256-bit secret the entire authentication scheme
+rests on - in `config.json` in cleartext, alongside `pairId`, the roster, port, hotkey,
 denylist, and debounce. The design does not discuss protecting it.
 
 DPAPI (`ProtectedData`, `CurrentUser` scope) would encrypt it for very little code. But
@@ -19,8 +19,8 @@ recoverability by hand.
 
 ## Decision
 
-Protect **only** the `pairKey` field. `config.json` stores `pairKeyProtected` — base64 of
-`ProtectedData.Protect(pairKey, entropy: pairId, DataProtectionScope.CurrentUser)` — and
+Protect **only** the `pairKey` field. `config.json` stores `pairKeyProtected` - base64 of
+`ProtectedData.Protect(pairKey, entropy: pairId, DataProtectionScope.CurrentUser)` - and
 every other field stays plaintext.
 
 A decrypt failure raises `error` with cause "configuration not readable on this profile;
@@ -36,7 +36,7 @@ re-pair required". It is never a crash and never a silent fallback.
   with the design rather than a new limitation: §7.7 already names re-pairing as the
   supported path for replacing a machine, and the roster entry of a replaced machine is
   exactly the condition §5.5's positive predicate exists to catch.
-- `pairing.json` is deliberately **not** protected — it has to be readable on the other
+- `pairing.json` is deliberately **not** protected - it has to be readable on the other
   machine. That is precisely why [0011](0011-pairing-bundle-file.md) deletes it on both
   sides as soon as the ceremony completes.
 - Using `pairId` as the DPAPI entropy binds the ciphertext to the pairing, so a

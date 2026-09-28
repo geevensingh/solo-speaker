@@ -24,13 +24,12 @@ approval before an agent makes it implicitly by writing code.
   explicitly reversible. "Reversible" means the user can revisit them; it does
   **not** mean an agent may quietly re-decide one mid-task.
 
-## 2. Tech Stack (TBD)
+## 2. Tech Stack
 
-No implementation language, framework, build system, package manager, or test
-runner has been chosen. The repo is pre-implementation: `README.md` and
-`docs/design.md` are the only tracked files.
+Chosen 2026-09-27 with explicit user approval, and recorded in
+[`docs/adr/`](docs/adr/). The ADR is the rationale; this section is the rule.
 
-What the design does fix (`docs/design.md` sections 6, 7.1, and 7.2, and
+What the design fixes (`docs/design.md` sections 6, 7.1, and 7.2, and
 `README.md` -> Platform):
 
 - **Platform:** Windows only.
@@ -40,30 +39,77 @@ What the design does fix (`docs/design.md` sections 6, 7.1, and 7.2, and
   account, no broker.
 - **Shape:** one tray process per machine.
 
-Until the stack is chosen:
+What is now chosen:
 
-- **Do not introduce a language, framework, build system, package manager, test
-  runner, linter, formatter, or third-party dependency without explicit
-  approval.** Picking one by writing the first file is not approval; it is the
-  decision being made implicitly, which is exactly what this rule exists to
-  prevent.
-- When the stack is chosen, record it **here** and in `docs/design.md` in the
-  same PR, and replace this TBD block with the concrete non-negotiable
-  defaults.
+| Concern | Choice | ADR |
+|---|---|---|
+| Language / runtime | C# on .NET 10 (LTS to Nov 2028) | [0002](docs/adr/0002-csharp-on-dotnet-10.md) |
+| Packaging | Self-contained single-file exe + PowerShell install/uninstall | [0003](docs/adr/0003-single-file-exe-packaging.md) |
+| Tray UI | WinForms `NotifyIcon` | [0004](docs/adr/0004-winforms-notifyicon-for-tray.md) |
+| Win32 / COM interop | CsWin32 source generator | [0005](docs/adr/0005-cswin32-for-wasapi-interop.md) |
+| Test runner | xUnit, plus a two-node in-process harness | [0006](docs/adr/0006-xunit-and-two-node-harness.md) |
+| Formatter / linter | `dotnet format`, plus PSScriptAnalyzer for `scripts/` | - |
+| Build / CI | GitHub Actions on `windows-latest` | - |
 
-## 3. Repository Layout (TBD)
+Non-negotiable defaults:
 
-Current tracked layout:
+- **`TreatWarningsAsErrors` is on repo-wide** (`Directory.Build.props`). Do not
+  suppress a warning at the project level to make a build pass; fix it, or
+  suppress it at the single call site with a comment saying why.
+- **`InvariantGlobalization` is on.** This is not a size optimization. Section
+  5.3 of the design requires ordinal byte equality with no casing, culture, or
+  normalization semantics anywhere in the roster-comparison path, and invariant
+  mode makes a culture-sensitive comparison impossible to introduce by
+  accident. Do not turn it off.
+- **`SoloSpeaker.Core` targets `net10.0`, not `net10.0-windows`.** This is what
+  makes section 3's pure-reducer rule enforceable by the compiler rather than by
+  discipline. Do not add a Windows-specific target, reference, or package to
+  `SoloSpeaker.Core` - if something there needs a Windows API, the boundary has
+  leaked and the fix is on the other side of it.
+- **Trimming stays off** for the published executable. The app reaches COM
+  interfaces through generated interop; a trimmed build is a class of silent
+  runtime failure this project cannot absorb, and the size saving is irrelevant
+  at two machines.
+
+The approval rule still applies to everything not listed above:
+
+- **Do not introduce a new framework, package manager, test runner, linter,
+  formatter, or third-party dependency without explicit approval.** Picking one
+  by writing the first file is not approval; it is the decision being made
+  implicitly, which is exactly what this rule exists to prevent. The current
+  third-party surface is deliberately small - `Microsoft.Windows.CsWin32`,
+  xUnit, and `coverlet.collector` - and additions to it are a decision, not an
+  implementation detail.
+- When something is added, record it here and in an ADR in the same PR.
+
+## 3. Repository Layout
 
 ```
-README.md              # public pitch / problem statement
-docs/design.md         # authoritative design spec
-AGENTS.md              # this file
+AGENTS.md                      # this file
+README.md                      # public pitch / problem statement
+SoloSpeaker.slnx               # solution
+Directory.Build.props          # shared compiler settings; warnings-as-errors
+global.json                    # SDK pin
+PSScriptAnalyzerSettings.psd1  # PowerShell lint config
+docs/
+  design.md                    # authoritative design spec
+  implementation-plan.md       # how it gets built, tested, deployed
+  manual-test-matrix.md        # per-release checklist for what CI cannot reach
+  wire-format.md               # normative v1 datagram format, frozen
+  adr/                         # decision records
+src/
+  SoloSpeaker.Core/            # net10.0 - pure. No Windows reference, by design
+    Abstractions/              # the I/O seams
+  SoloSpeaker.App/             # net10.0-windows - tray, interop, sockets, disk
+    NativeMethods.txt          # CsWin32 surface, annotated per design section
+    app.manifest               # asInvoker, PerMonitorV2
+tests/
+  SoloSpeaker.Core.Tests/      # net10.0 - everything CI can prove
+scripts/
+  install.ps1  uninstall.ps1  Test-Ascii.ps1
 ```
 
-The source layout is decided together with the stack (section 2) and recorded
-here in the same PR. Two constraints already come from the design and are not
-open questions:
+Constraints that come from the design and are not open questions:
 
 - `docs/design.md` section 6 names the components: `StateMachine`, `PeerLink`,
   `MicWatcher`, `MuteActuator`, `StateStore`, `Ledger`, `HotkeyListener` +
@@ -73,6 +119,16 @@ open questions:
   (newState, effects)`) and **all I/O lives at the edges**. This is called out
   in the design as the main testability decision. Do not put a socket, an audio
   device handle, a clock read, or a disk write inside the reducer.
+- **The reducer lives in `SoloSpeaker.Core`; everything it talks to is an
+  interface in `SoloSpeaker.Core/Abstractions/`.** `IClock`, `IPeerTransport`,
+  `IProximitySource`, `IMuteActuator`, `IMicWatcher`, `IStateStore`.
+  Implementations live in `SoloSpeaker.App`. A test that needs a real socket or
+  a real audio device to exercise arbitration logic means the boundary leaked.
+- **Nothing outside the composition root reads the system clock.** No
+  `DateTime.UtcNow`, no `Environment.TickCount64` - take `IClock`. Every
+  interval in the design (2 s cadence, 10 s presence window, 12 s quarantine,
+  5 s debounce, 250 ms self-change suppression) is tested against a controlled
+  clock, and one real-clock call makes those tests slow or flaky.
 
 ## 4. Coding Conventions
 
@@ -157,9 +213,12 @@ The rules below are language-agnostic and apply now.
   commit messages, and new docs. If you genuinely need a new codepoint (e.g. a
   tray UI glyph), add a row here **and** to the lint gate's `ALLOWED` set with a
   comment explaining why - do not disable or loosen the check.
-- A repo-wide ASCII lint gate is added with the toolchain (section 2) and must
-  encode exactly the table above. Until it exists, this rule is
-  contributor-enforced.
+- A repo-wide ASCII lint gate is implemented as
+  [`scripts/Test-Ascii.ps1`](scripts/Test-Ascii.ps1) and runs in CI. Its
+  `$allowed` set is a transcription of exactly the table above; adding a
+  codepoint to one without the other is the drift the check exists to prevent.
+  Run it locally with `.\scripts\Test-Ascii.ps1`, or `-Fix` for a table view
+  with suggested substitutes.
 
 ## 5. Testing
 
@@ -180,8 +239,12 @@ The rules below are language-agnostic and apply now.
 ### Fast inner loop
 
 For incremental work, prefer a fast inner loop over the full Definition of Done
-cycle (section 7) on every iteration. The concrete commands are defined with the
-toolchain (section 2); the principles hold regardless:
+cycle (section 7) on every iteration:
+
+```powershell
+dotnet test tests\SoloSpeaker.Core.Tests --filter FullyQualifiedName~QuarantineTests
+dotnet build -c Debug
+```
 
 - **Run the narrowest thing that covers the change.** Target the specific test
   file or module during iteration; escalate to the full suite only at the end
@@ -193,11 +256,11 @@ toolchain (section 2); the principles hold regardless:
 - For sustained work on a single area, kick off long-lived watchers in
   background terminals so each save checks incrementally. Stop the watchers
   before running the full Definition of Done cycle to free up CPU / RAM.
-- **Align local with CI before non-trivial work.** Install from the committed
-  lockfile (the exact-resolution install command, not the floating one) once at
-  the start of a meaningful change, so local dependencies match what CI
-  installs. A "passes locally" claim against drifted dependencies is not
-  equivalent to "passes on CI."
+- **Align local with CI before non-trivial work.** CI pins the SDK from
+  `global.json` and runs `dotnet restore` against the committed
+  `PackageReference` versions. A "passes locally" claim from a different SDK
+  feature band is not equivalent to "passes on CI"; check `dotnet --version`
+  against `global.json` if a build behaves differently in the two places.
 
 ## 6. Security & Privacy
 
@@ -227,8 +290,20 @@ These checks run before declaring a task done, **not** on every save. For
 inner-loop iteration use the fast loop (section 5); the steps below are the
 final sweep.
 
-The concrete command names are TBD until the toolchain is chosen (section 2).
-Step 6 is what governs in the meantime.
+The full sweep, from the repository root:
+
+```powershell
+dotnet format --verify-no-changes
+dotnet build -c Release
+dotnet test -c Release --no-build
+dotnet publish src\SoloSpeaker.App\SoloSpeaker.App.csproj -c Release -o artifacts\publish
+.\scripts\Test-Ascii.ps1
+Invoke-ScriptAnalyzer -Path .\scripts -Recurse -Settings .\PSScriptAnalyzerSettings.psd1
+```
+
+`dotnet publish` is in the sweep rather than only at release. Deployment is a
+single hand-copied executable (section 2), so a packaging regression is
+otherwise invisible until the day it matters.
 
 Before finishing a task:
 

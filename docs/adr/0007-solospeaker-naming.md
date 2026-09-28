@@ -1,6 +1,6 @@
-# 0007 — `SoloSpeaker` as the name everywhere
+# 0007 - `SoloSpeaker` as the name everywhere
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 
 ## Context
 
@@ -19,7 +19,7 @@ that makes a recovery instruction fail.
 on-disk folder `%LOCALAPPDATA%\SoloSpeaker\`.
 
 `design.md` is updated to match. It is the older document, but it is the one with the
-smaller footprint — the repository name, remote URL, and README all already say
+smaller footprint - the repository name, remote URL, and README all already say
 `solo-speaker`.
 
 ## Consequences

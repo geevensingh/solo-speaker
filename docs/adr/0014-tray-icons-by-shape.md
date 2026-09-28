@@ -1,6 +1,6 @@
-# 0014 — Tray icons differentiated by shape, not colour
+# 0014 - Tray icons differentiated by shape, not colour
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 **Resolves:** `implementation-plan.md` §8.4
 
 ## Context
@@ -9,7 +9,7 @@
 explanation for why a machine is silent". No icon assets exist or are specified.
 
 The temptation is to draw one speaker glyph and tint it five ways. At 16 px, in a tray
-that may be on a light or dark taskbar, colour is close to useless — and it fails
+that may be on a light or dark taskbar, colour is close to useless - and it fails
 completely for a colour-blind user.
 
 `muted` and `alone` are the pair that must never be confused, because they are the two
@@ -24,7 +24,7 @@ Five icons differentiated by **silhouette first**, with colour as reinforcement 
 |---|---|
 | `active` | Filled speaker with sound waves |
 | `muted` | Speaker with a slash through it |
-| `alone` | Speaker outline, no waves, no slash — a distinctly emptier shape than `muted` |
+| `alone` | Speaker outline, no waves, no slash - a distinctly emptier shape than `muted` |
 | `quarantine` | Speaker with a dashed outline |
 | `error` | Speaker with an exclamation badge |
 

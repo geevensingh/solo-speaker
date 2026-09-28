@@ -1,6 +1,6 @@
-# 0010 — Mic-in-use is the proxy for in-a-call
+# 0010 - Mic-in-use is the proxy for in-a-call
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 **Source:** `design.md` §9.1, decision D-3
 
 Restated here so that all project decisions live in one place. The design remains
@@ -25,7 +25,7 @@ Accept "microphone in use" as the proxy for "in a call".
   remain protected by the §5.5 safety override. This is the common case and it works.
 - A participant who has fully released the microphone is not protected. They are a
   listener at that point, so the cost is bounded.
-- Non-call microphone use — dictation, voice assistants, a notification chime — reads as a
+- Non-call microphone use - dictation, voice assistants, a notification chime - reads as a
   call. The denylist and the claim-edge debounce exist to narrow this, and
   [0009](0009-safety-signal-is-not-debounced.md) accepts that the safety signal stays
   deliberately broad.
@@ -34,7 +34,7 @@ Accept "microphone in use" as the proxy for "in a call".
   the entire auto-claim loop. A standalone spike before phase 1 was considered and
   declined; it is verified instead against the running app in phase 2, via manual matrix
   row H5, which is why that row is run first among the phase-2 rows. The risk of finding
-  out late is accepted knowingly — see `implementation-plan.md` §4.7.
+  out late is accepted knowingly - see `implementation-plan.md` §4.7.
 
 ## Reversibility
 

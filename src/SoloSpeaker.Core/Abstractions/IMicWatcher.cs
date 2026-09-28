@@ -9,7 +9,7 @@ namespace SoloSpeaker.Core.Abstractions;
 /// Not implemented in phase 1. Phase 1 supplies a stub whose
 /// <see cref="SelfMicLive"/> and <see cref="ClaimEdgeFired"/> are always
 /// <see langword="false"/>, which is why the wire format still carries an explicit
-/// <c>micLive: false</c> — see §7.1 and §8.
+/// <c>micLive: false</c> - see §7.1 and §8.
 /// </remarks>
 public interface IMicWatcher
 {

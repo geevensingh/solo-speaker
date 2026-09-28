@@ -1,7 +1,7 @@
 namespace SoloSpeaker.Core.Abstractions;
 
 /// <summary>
-/// Presence only — "is the peer near enough to conflict with". See <c>docs/design.md</c>
+/// Presence only - "is the peer near enough to conflict with". See <c>docs/design.md</c>
 /// §8.
 /// </summary>
 /// <remarks>
@@ -24,7 +24,7 @@ public interface IProximitySource
     /// </summary>
     /// <remarks>
     /// Loss of presence unmutes via the §5.5 predicate. It never alters
-    /// <c>activeOwner</c> — stored ownership survives the peer's absence and applies again
+    /// <c>activeOwner</c> - stored ownership survives the peer's absence and applies again
     /// on return.
     /// </remarks>
     bool PeerPresent { get; }

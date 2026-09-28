@@ -1,14 +1,14 @@
-# 0006 — xUnit, plus a two-node in-process harness
+# 0006 - xUnit, plus a two-node in-process harness
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 
 ## Context
 
 `design.md` §10 splits its test plan into unit tests against the pure reducer and an
 "integration (two-machine manual matrix)". That split is drawn in the wrong place.
 
-Several rows filed as manual — claim ping-pong, concurrent equal-`seq` convergence, stale
-`seq`, quarantine adoption on lid-open — do not actually need two machines. They need two
+Several rows filed as manual - claim ping-pong, concurrent equal-`seq` convergence, stale
+`seq`, quarantine adoption on lid-open - do not actually need two machines. They need two
 reducers, a controllable clock, and a transport that can misbehave on demand. Leaving them
 in the manual matrix means they are exercised a handful of times by hand instead of on
 every commit, and they cover the convergence logic where a regression is least visible.
@@ -20,7 +20,7 @@ xUnit for the test framework, and a **two-node in-process harness** in
 test-controlled `IClock`, and a fake `IPeerTransport` that can drop, duplicate, reorder,
 and delay datagrams.
 
-Validation — HMAC, roster checks, the `seq` bound — sits *above* the transport seam, so
+Validation - HMAC, roster checks, the `seq` bound - sits *above* the transport seam, so
 hostile-input tests run against real bytes without a socket.
 
 ## Consequences
@@ -41,5 +41,5 @@ hostile-input tests run against real bytes without a socket.
 ## Reversibility
 
 The framework is trivially swappable. The harness is the substantive part of this
-decision, and it is additive — it removes nothing from `design.md` §10, which is adopted
+decision, and it is additive - it removes nothing from `design.md` §10, which is adopted
 whole.

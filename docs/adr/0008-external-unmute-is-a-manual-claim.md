@@ -1,6 +1,6 @@
-# 0008 — An external unmute is a manual claim
+# 0008 - An external unmute is a manual claim
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 **Source:** `design.md` §9.1, decision D-1
 
 Restated here so that all project decisions live in one place. The design remains
@@ -10,7 +10,7 @@ normative; if the two ever disagree, `design.md` wins.
 
 When a machine goes unexpectedly silent, the natural human reflex is to reach for the
 volume flyout and unmute it. Revision 1 of the design treated that as drift and corrected
-it on the next reconcile tick, so the reflex failed — the machine re-muted itself under
+it on the next reconcile tick, so the reflex failed - the machine re-muted itself under
 the user's hand.
 
 ## Decision
@@ -27,8 +27,8 @@ and the tray left-click.
   the decision most worth a second look.
 - It invites a self-feedback loop, since the actuator's own `SetMute` raises the same
   change notification. §7.3 addresses this by comparing against the last value written and
-  ignoring notifications within 250 ms of our own write. Both halves of that — suppression
-  inside the window, and *honouring* a change outside it — are tested
+  ignoring notifications within 250 ms of our own write. Both halves of that - suppression
+  inside the window, and *honouring* a change outside it - are tested
   (`implementation-plan.md` §4.6).
 
 ## Reversibility

@@ -42,9 +42,9 @@ repository scaffolding, and CI are in place. No product code yet.
 Phase 1 deliberately ships without call detection, so a manual claim can mute a machine
 that's mid-meeting. That limitation is accepted and recorded, not overlooked.
 
-Every gap the plan found in the design is now closed — pairing transfer, a single-instance
+Every gap the plan found in the design is now closed - pairing transfer, a single-instance
 guard, `pairKey` protection at rest, tray icons, diagnostics, and a `bye` datagram that
-narrows §9.2-5. See [ADRs 0011–0016](docs/adr/).
+narrows §9.2-5. See [ADRs 0011-0016](docs/adr/).
 
 One risk is knowingly carried: §9.2-3 assumes muting the render endpoint doesn't disturb
 capture sessions, and that gets verified against the running app in phase 2 rather than up
@@ -54,7 +54,7 @@ front.
 
 | Document | What it covers |
 |---|---|
-| [`docs/design.md`](docs/design.md) | The full design at revision 2 — what it does and why |
+| [`docs/design.md`](docs/design.md) | The full design at revision 3 - what it does and why |
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | How it gets built, tested, and deployed |
 | [`docs/manual-test-matrix.md`](docs/manual-test-matrix.md) | The per-release checklist CI can't cover |
 | [`docs/wire-format.md`](docs/wire-format.md) | Normative v1 datagram format, frozen |
@@ -62,7 +62,7 @@ front.
 
 ## Design
 
-[`docs/design.md`](docs/design.md) is the full design, at revision 2. It went through an
+[`docs/design.md`](docs/design.md) is the full design, at revision 3. It went through an
 adversarial review that found four Critical defects in revision 1 - the mute predicate
 never consulted microphone state, `activeOwner` had an unbounded domain that could mute
 both machines durably, the HMAC was keyed by a secret broadcast in cleartext, and the phase
@@ -84,8 +84,11 @@ dotnet publish src\SoloSpeaker.App\SoloSpeaker.App.csproj -c Release -o artifact
 
 Publishing produces a single self-contained `SoloSpeaker.exe` with no runtime prerequisite
 on the target machine. Install it with `scripts\install.ps1`, remove it with
-`scripts\uninstall.ps1` — which runs `--restore` before deleting the binary, so an endpoint
+`scripts\uninstall.ps1` - which runs `--restore` before deleting the binary, so an endpoint
 this app muted can never be stranded by an uninstall.
+
+`scripts\Test-Ascii.ps1` enforces the ASCII rule in [`AGENTS.md`](AGENTS.md) section 4.
+The full pre-commit sweep is in that file, section 7.
 
 ## Platform
 

@@ -1,6 +1,6 @@
-# 0009 — The safety signal is filtered but not debounced
+# 0009 - The safety signal is filtered but not debounced
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 **Source:** `design.md` §9.1, decision D-2
 
 Restated here so that all project decisions live in one place. The design remains

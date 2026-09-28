@@ -74,15 +74,19 @@ jobs:
           if-no-files-found: error
 
   script-analysis:
-    name: PowerShell analysis
+    name: Repository checks
     # The install and uninstall scripts carry the --restore contract of
-    # design.md 7.3. They are the recovery path, so they are linted rather
-    # than trusted.
+    # design.md section 7.3. They are the recovery path, so they are linted
+    # rather than trusted. The ASCII gate is required by AGENTS.md section 4.
     runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify ASCII compliance
+        shell: pwsh
+        run: ./scripts/Test-Ascii.ps1
 
       - name: Run PSScriptAnalyzer
         shell: pwsh

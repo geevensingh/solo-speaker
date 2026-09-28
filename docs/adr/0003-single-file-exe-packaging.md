@@ -1,13 +1,13 @@
-# 0003 — Self-contained single-file exe, no installer
+# 0003 - Self-contained single-file exe, no installer
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 
 ## Context
 
 `design.md` §7.3 states that "the uninstaller invokes `--restore`", and §7.6 lists "app
-uninstalled → uninstaller runs `--restore`" as a named unmute path. But no installer is
-specified anywhere in the design. That constraint — an uninstall step that must run code
-*before* the binary disappears — turns out to be the deciding factor.
+uninstalled -> uninstaller runs `--restore`" as a named unmute path. But no installer is
+specified anywhere in the design. That constraint - an uninstall step that must run code
+*before* the binary disappears - turns out to be the deciding factor.
 
 Three options were compared: a self-contained exe with install/uninstall scripts; an Inno
 Setup or WiX MSI; and MSIX.
@@ -39,7 +39,7 @@ the cheaper option would produce an error icon on every boot.
 - No Add/Remove Programs entry. Deleting the folder by hand strands a muted endpoint with
   no `--restore` available.
 - No auto-update. Updates are "stop both, update both, start both", which is the right
-  procedure anyway — it avoids the mixed-version wire window entirely.
+  procedure anyway - it avoids the mixed-version wire window entirely.
 
 The missing Add/Remove entry is acceptable because Goal 8's real failsafe is the Windows
 volume mixer, not `--restore`. A hand-deleted install costs one manual unmute, not a

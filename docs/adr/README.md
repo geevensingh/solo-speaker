@@ -2,7 +2,7 @@
 
 Short records of decisions that are expensive to reverse or easy to re-litigate.
 
-`design.md` already does most of this work — §4 records a rejected approach specifically
+`design.md` already does most of this work - §4 records a rejected approach specifically
 so it does not get re-proposed, and §9.1 tabulates three decisions with their rationale
 and reversibility. The ADRs here extend that habit to the decisions the design does not
 cover, and restate §9.1's three so that all of them live in one place.

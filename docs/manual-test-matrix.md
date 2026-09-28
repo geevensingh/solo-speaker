@@ -5,8 +5,8 @@ Everything in `design.md` §10 that CI cannot prove, plus the paths added by
 
 **A release is gated on CI green *and* a completed run of this matrix.** CI on its own is
 a weaker claim than it looks here: the reducer is fully covered in-process, but every
-mechanism that actually makes a machine silent — WASAPI actuation, capture-session
-enumeration, subnet broadcast, sleep and resume, device change, hotkey registration — is
+mechanism that actually makes a machine silent - WASAPI actuation, capture-session
+enumeration, subnet broadcast, sleep and resume, device change, hotkey registration - is
 only ever exercised by hand.
 
 ## How to run
@@ -29,16 +29,16 @@ correct mute with a wrong icon is still a failure.
 |---|---|---|---|---|
 | A1 | Hotkey on `L` | `L` audible and `active`; `D` muted and `muted` | | |
 | A2 | Hotkey on `D`, then `L`, then `D`, ten times | Ownership follows every press; no flapping, no stuck state | | |
-| A3 | Tray left-click on `L` | Same as A1 — the three input surfaces are one event | | |
+| A3 | Tray left-click on `L` | Same as A1 - the three input surfaces are one event | | |
 | A4 | Hotkey on the machine that already owns | No-op. Nothing changes anywhere | | |
 | A5 | Press the hotkey on both machines within ~100 ms | Both converge to the *same* owner, by lexicographically smaller roster ID. Check both trays | | |
 | A6 | `L` owner. Close `L`. Wait 15 s | `D` unmutes within the 10 s presence window, tray `alone` | | |
 | A7 | Reopen `L`. Wait for quarantine to expire | `L` is still owner; `D` mutes again. Stored ownership survived absence | | |
 | A8 | `L` owner, `D` muted. Exit `L` **gracefully** from the tray menu | `D` unmutes in **under a second**, not after 10 s. This is the `bye` datagram | | |
 | A9 | Repeat A8 but hard-kill `L` instead | `D` takes the full 10 s window. Confirm the log distinguishes this from A8 | | |
-| A10 | `L` owner. Shut Windows down on `L` normally | Same as A8 — `bye` is sent on shutdown and logoff, not only on tray exit | | |
+| A10 | `L` owner. Shut Windows down on `L` normally | Same as A8 - `bye` is sent on shutdown and logoff, not only on tray exit | | |
 
-## B. Stickiness — the central property
+## B. Stickiness - the central property
 
 Per §5.2, ownership is a latch. These rows exist because the most likely regression is
 someone "helpfully" making it a function of current conditions.
@@ -69,7 +69,7 @@ someone "helpfully" making it a function of current conditions.
 | D2 | Swap back | Same, in reverse. Check the volume mixer for both devices | | |
 | D3 | While `D` is muted, unmute it from the Windows volume flyout | Honoured as a manual claim (D-1). `D` becomes owner; `L` mutes. No flapping | | |
 | D4 | Repeat D3 five times quickly | No self-feedback loop. The 250 ms suppression window holds | | |
-| D5 | While `D` is muted, hard-kill `SoloSpeaker.exe` (Task Manager → End task) | `D` stays muted — this is expected and recorded in §7.6 | | |
+| D5 | While `D` is muted, hard-kill `SoloSpeaker.exe` (Task Manager -> End task) | `D` stays muted - this is expected and recorded in §7.6 | | |
 | D6 | Relaunch after D5 | Ledger replay restores audio on startup | | |
 | D7 | Repeat D5, then run `SoloSpeaker.exe --restore` instead of relaunching | Audio restored; app does not start | | |
 | D8 | Repeat D5, then run `scripts\uninstall.ps1` | Audio restored before the binary is deleted; script reports success | | |
@@ -87,13 +87,13 @@ someone "helpfully" making it a function of current conditions.
 | E5 | Corrupt `ledger.json` with invalid JSON, restart | `error` raised; app still starts; nothing muted | | |
 | E6 | Acknowledge an `error`, then trigger a different one | Tooltip names the *new* specific cause | | |
 | E7 | Disable the audio endpoint in Sound settings while running | `error` on enumeration failure; no crash | | |
-| E8 | Launch a second copy by hand while one is already running | Second exits with a balloon and **touches nothing** — no ledger write, no endpoint change. Verify by muting first, then launching, then confirming the mute survives | | |
+| E8 | Launch a second copy by hand while one is already running | Second exits with a balloon and **touches nothing** - no ledger write, no endpoint change. Verify by muting first, then launching, then confirming the mute survives | | |
 | E9 | Run `--restore` while an instance is running | Refuses with "SoloSpeaker is running; exit it first". Does not replay the live ledger | | |
 | E10 | Copy `config.json` to a second Windows user profile and start there | `error` with a re-pair cause. No crash, no silent fallback to an unprotected key | | |
 
 ## F. Network and hostile input
 
-F2–F5 need a small sender script; see [`wire-format.md`](wire-format.md) for the golden
+F2-F5 need a small sender script; see [`wire-format.md`](wire-format.md) for the golden
 vectors to mutate.
 
 | # | Steps | Expected | Result | Notes |
@@ -104,9 +104,9 @@ vectors to mutate.
 | F4 | Send a valid `mac` with a `machineId` outside the roster | Dropped | | |
 | F5 | Send a valid datagram with `seq = uint64.Max` | Dropped, `error` raised. **Persisted state on both machines is unchanged** | | |
 | F6 | Replay a captured valid datagram inside the presence window | Accepted per §7.1. Confirm the blast radius stays bounded | | |
-| F7 | Replay a captured `bye` datagram | Peer presence clears and the machine unmutes — the safe direction. **`activeOwner` must not move** | | |
+| F7 | Replay a captured `bye` datagram | Peer presence clears and the machine unmutes - the safe direction. **`activeOwner` must not move** | | |
 | F8 | Send 5,000 malformed datagrams in one minute | Log shows one aggregated line per reason, not 5,000 lines | | |
-| F9 | Leave `L` in another room on the same Wi-Fi | `L` is treated as present and will be muted. Known limitation §9.2-1 — confirm it is the *only* surprise | | |
+| F9 | Leave `L` in another room on the same Wi-Fi | `L` is treated as present and will be muted. Known limitation §9.2-1 - confirm it is the *only* surprise | | |
 
 ## G. Install, update, uninstall
 
@@ -124,20 +124,20 @@ vectors to mutate.
 | G10 | `uninstall.ps1` while muted | Audio restored, task removed, `config.json` deleted | | |
 | G11 | `uninstall.ps1 -KeepConfig`, then reinstall | Pairing survives; no second ceremony needed | | |
 
-## H. Phase 2 only — call detection
+## H. Phase 2 only - call detection
 
 Skip entirely while `micLive` is hardcoded `false`.
 
 **Run H5 first.** It is the empirical check for `design.md` §9.2-3, the assumption that
 render-mute does not disturb capture sessions. The whole auto-claim loop rests on it, and
-a standalone pre-phase-1 spike was deliberately declined in favour of this row — so if it
+a standalone pre-phase-1 spike was deliberately declined in favour of this row - so if it
 fails, it fails here, and the rest of phase 2 is built on sand until it is resolved.
 
 | # | Steps | Expected | Result | Notes |
 |---|---|---|---|---|
 | H1 | Join a Teams call on `L` | `L` claims ownership without the hotkey; `D` mutes | | |
 | H2 | Sit on a Teams pre-join screen on `L` for 30 s, then leave without joining | `L` is audible the whole time (safety signal), but **ownership never moves** | | |
-| H3 | `L` owner and in a call. Press the hotkey on `D` | `L` stays audible — `selfMicLive` overrides the latch. Goal 2 | | |
+| H3 | `L` owner and in a call. Press the hotkey on `D` | `L` stays audible - `selfMicLive` overrides the latch. Goal 2 | | |
 | H4 | Both machines in calls simultaneously | Both audible. Ownership resolves underneath | | |
 | H5 | `D` muted, then join a call on `D` | Claim still fires. **This is §9.2-3**; if it fails, the auto-claim loop is broken | | |
 | H6 | Run an always-on mic consumer (NVIDIA Broadcast, Krisp) on `L` | `L` becomes permanently unmutable. Confirm the denylist discovery UI lists the process | | |
@@ -152,8 +152,8 @@ fails, it fails here, and the rest of phase 2 is built on sand until it is resol
 |---|---|
 | Version | |
 | Date | |
-| Desktop (`D`) — Windows build | |
-| Laptop (`L`) — Windows build | |
+| Desktop (`D`) - Windows build | |
+| Laptop (`L`) - Windows build | |
 | Rows passed / run | |
 | Rows skipped (and why) | |
 | Signed | |

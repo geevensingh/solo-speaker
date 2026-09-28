@@ -1,6 +1,6 @@
-# 0011 — Pairing by bundle file, with in-band roster completion
+# 0011 - Pairing by bundle file, with in-band roster completion
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 **Resolves:** `implementation-plan.md` §8.1
 
 ## Context
@@ -10,7 +10,7 @@ open: machine A "displays them as a short code or QR", and then "the two exchang
 IDs" with no mechanism at all for the second direction.
 
 A short code cannot work. `pairId` (128 bits) plus `pairKey` (256 bits) plus a roster ID
-(128 bits) is 512 bits — roughly 103 base32 characters. QR requires B to have a camera
+(128 bits) is 512 bits - roughly 103 base32 characters. QR requires B to have a camera
 pointed at A's screen, which is not a safe assumption for a desktop/laptop pair.
 
 ## Decision
@@ -27,7 +27,7 @@ A **bundle file** in one direction, and B's ordinary heartbeat in the other.
    unknown `machineId`. Because A's roster is incomplete *and* pairing mode is active, A
    enrolls `rosterIdB`, completes the roster, leaves pairing mode, and deletes its own copy
    of the bundle.
-5. Both machines display an 8-hex-character fingerprint — the first four bytes of
+5. Both machines display an 8-hex-character fingerprint - the first four bytes of
    HMAC-SHA256 over the two roster IDs in sorted order, keyed by `pairKey`. The user
    compares them by eye.
 
@@ -43,7 +43,7 @@ A **bundle file** in one direction, and B's ordinary heartbeat in the other.
 - `pairing.json` holds `pairKey` in cleartext, which is why both sides delete it and why
   it is in `.gitignore`. It is the one moment the key exists outside the two configs.
 - The fingerprint is a human check, not a cryptographic one. It catches the realistic
-  error — a stale bundle, or pairing the wrong pair of machines — rather than an attack.
+  error - a stale bundle, or pairing the wrong pair of machines - rather than an attack.
 - If A never sees B, pairing mode expires with an incomplete roster. Per §5.5 that machine
   can never mute, which is correct, and it raises `error` with cause "pairing incomplete"
   rather than looking healthy.

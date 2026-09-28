@@ -16,7 +16,7 @@ that are semantically identical but textually different produce different MACs.
 
 This is the failure mode worth fearing, because it is silent. A canonicalization change
 produces datagrams the peer rejects, the peer reports no peer, and §5.5 leaves both
-machines audible. The symptom is byte-identical to "the other machine is switched off" —
+machines audible. The symptom is byte-identical to "the other machine is switched off" -
 correct behaviour, safe behaviour, and completely misleading.
 
 ## Payload
@@ -24,20 +24,20 @@ correct behaviour, safe behaviour, and completely misleading.
 ```json
 {
   "v": 1,
-  "pairId": "b1f0…",
-  "machineId": "7f3a9c…",
+  "pairId": "b1f0...",
+  "machineId": "7f3a9c...",
   "seq": 41,
-  "activeOwner": "2d81e4…",
+  "activeOwner": "2d81e4...",
   "micLive": false,
   "bye": false,
   "sentUtc": "2026-09-25T21:07:33.118Z",
-  "mac": "…"
+  "mac": "..."
 }
 ```
 
 | Field | Type | Notes |
 |---|---|---|
-| `v` | integer | Format version. An unknown value is a version mismatch → `error` |
+| `v` | integer | Format version. An unknown value is a version mismatch -> `error` |
 | `pairId` | hex string, 32 chars | 128-bit pairing GUID. Transmitted; scopes the namespace |
 | `machineId` | hex string, 32 chars | Sender's 128-bit roster ID |
 | `seq` | integer | Lamport clock. Orders by *event count*, never wall-clock time |
@@ -54,7 +54,7 @@ captured packet was enough to forge every subsequent one.
 ## Canonicalization
 
 1. Fields are serialized in exactly the order in the table above, `mac` last.
-2. `mac` is computed over the document with the `mac` field **omitted entirely** — not
+2. `mac` is computed over the document with the `mac` field **omitted entirely** - not
    present-and-empty, not present-and-null.
 3. UTF-8, no BOM.
 4. No insignificant whitespace: no spaces after `:` or `,`, no newlines.
@@ -63,7 +63,7 @@ captured packet was enough to forge every subsequent one.
 7. Booleans are bare `true` / `false`.
 8. `sentUtc` is `yyyy-MM-ddTHH:mm:ss.fffZ`, always UTC, always exactly three fractional
    digits.
-9. No field is ever omitted. A missing field is a version mismatch, never a default —
+9. No field is ever omitted. A missing field is a version mismatch, never a default -
    this is explicit in §7.1 for `micLive` and is applied to all fields here.
 
 ## Ingress order
@@ -71,21 +71,21 @@ captured packet was enough to forge every subsequent one.
 Per §7.1, in exactly this order. A datagram failing more than one check is attributed to
 the **first** failure, which is what the ingress tests assert.
 
-1. `pairId` mismatch → drop, silent
-2. Invalid `mac` → drop, silent
-3. `machineId` not in the roster → drop, silent
-4. `seq` exceeds `localSeq` by more than 1000 → drop, raise `error`
-5. Missing or unparseable `micLive` or `bye` → version mismatch, raise `error`
+1. `pairId` mismatch -> drop, silent
+2. Invalid `mac` -> drop, silent
+3. `machineId` not in the roster -> drop, silent
+4. `seq` exceeds `localSeq` by more than 1000 -> drop, raise `error`
+5. Missing or unparseable `micLive` or `bye` -> version mismatch, raise `error`
 
 Only then is the datagram processed by §5.4's convergence rules.
 
-Steps 1–3 are silent by design. They are the expected result of ordinary traffic from
+Steps 1-3 are silent by design. They are the expected result of ordinary traffic from
 another pairing or another application on the same port, and raising `error` for them
 would make the tray icon meaningless. Step 4 is loud because it is either corruption or an
 attack, and it is the case that could otherwise pin ownership permanently.
 
 Drops are counted and logged **aggregated per minute by reason**, never one line per
-datagram — see [ADR 0015](adr/0015-local-rolling-log.md). A rate change by reason is the
+datagram - see [ADR 0015](adr/0015-local-rolling-log.md). A rate change by reason is the
 signal that distinguishes a wire-version mismatch from a switched-off peer.
 
 ## Pairing-mode exception to step 3
@@ -101,7 +101,7 @@ frozen into v1 alongside everything else.
 
 ## Departure
 
-`bye: true` is sent on graceful exit, logoff, and shutdown — three times, about 50 ms
+`bye: true` is sent on graceful exit, logoff, and shutdown - three times, about 50 ms
 apart, because UDP offers no retry and no further heartbeat is coming.
 
 A receiver that accepts a `bye` clears peer presence immediately rather than waiting out
@@ -144,7 +144,7 @@ is almost always yes.
 | `v1-seq-zero` | `seq: 0`, guarding leading-zero and empty-integer formatting |
 | `v1-seq-max` | `seq` at `uint64.Max`, the §5.4 bound case |
 | `v1-owner-is-peer` | `activeOwner` naming the other roster entry |
-| `v1-owner-unknown` | `activeOwner` outside the roster → both audible, `error` |
-| `v1-bad-mac` | One flipped bit in `mac` → dropped at ingress step 2 |
-| `v1-missing-miclive` | Field absent → version mismatch, **never** inferred as `false` |
-| `v1-missing-bye` | Field absent → version mismatch, **never** inferred as `false` |
+| `v1-owner-unknown` | `activeOwner` outside the roster -> both audible, `error` |
+| `v1-bad-mac` | One flipped bit in `mac` -> dropped at ingress step 2 |
+| `v1-missing-miclive` | Field absent -> version mismatch, **never** inferred as `false` |
+| `v1-missing-bye` | Field absent -> version mismatch, **never** inferred as `false` |

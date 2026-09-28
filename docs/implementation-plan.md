@@ -1,14 +1,14 @@
-# SoloSpeaker — Implementation Plan
+# SoloSpeaker - Implementation Plan
 
-**Status:** Revision 1 — written against `design.md` revision 2
+**Status:** Revision 1 - written against `design.md` revision 2
 **Covers:** phase 1 only, plus the standing test and deployment machinery that phases 2
 and 3 inherit
-**Companions:** [`manual-test-matrix.md`](manual-test-matrix.md) ·
-[`wire-format.md`](wire-format.md) · [`adr/`](adr/)
+**Companions:** [`manual-test-matrix.md`](manual-test-matrix.md) -
+[`wire-format.md`](wire-format.md) - [`adr/`](adr/)
 
 This plan answers three questions the design deliberately left alone: how the thing gets
 built, how it gets tested, and how it gets onto the two machines. It does not restate the
-design, and where the two disagree the design wins — except for the items in §10, which
+design, and where the two disagree the design wins - except for the items in §10, which
 are gaps the design does not cover at all.
 
 ---
@@ -44,13 +44,13 @@ SoloSpeaker.sln
 Directory.Build.props          Shared compiler settings; InvariantGlobalization=true
 global.json                    SDK pin
 src/
-  SoloSpeaker.Core/            net10.0 — pure. No Windows reference, by design.
+  SoloSpeaker.Core/            net10.0 - pure. No Windows reference, by design.
     Abstractions/              The seams of §3
-  SoloSpeaker.App/             net10.0-windows — tray host, interop, sockets, disk
+  SoloSpeaker.App/             net10.0-windows - tray host, interop, sockets, disk
     NativeMethods.txt          CsWin32 surface, annotated per design section
     app.manifest               asInvoker, PerMonitorV2
 tests/
-  SoloSpeaker.Core.Tests/      net10.0 — everything CI can prove
+  SoloSpeaker.Core.Tests/      net10.0 - everything CI can prove
 scripts/
   install.ps1                  Copy, unblock, register logon task
   uninstall.ps1                --restore, then remove
@@ -74,7 +74,7 @@ remaining boundaries are implied rather than stated. They are declared in
 
 | Seam | Exists so that |
 |---|---|
-| `IClock` | Every interval is testable without sleeping — the 2 s cadence, 10 s presence window, 12 s quarantine, 5 s debounce, 250 ms self-change suppression |
+| `IClock` | Every interval is testable without sleeping - the 2 s cadence, 10 s presence window, 12 s quarantine, 5 s debounce, 250 ms self-change suppression |
 | `IPeerTransport` | Datagrams can be dropped, duplicated, reordered and delayed on demand; validation sits *above* this seam so hostile-input tests run on real bytes without a socket |
 | `IProximitySource` | Presence is never read from the transport directly, which is what would make the phase-3 decomposition expensive |
 | `IMuteActuator` | Ledger and reconcile logic are testable without a real endpoint |
@@ -109,7 +109,7 @@ headset swap re-targets the endpoint; that `RegisterHotKey` conflicts are detect
 one of those lives in [`manual-test-matrix.md`](manual-test-matrix.md) and is signed off
 by hand, per release, on both machines.
 
-### 4.2 Unit tests — mapping `design.md` §10
+### 4.2 Unit tests - mapping `design.md` §10
 
 Each row is one or more `[Fact]`/`[Theory]` cases. The design's list is adopted whole; the
 final block is additional, and §4.6 explains why.
@@ -117,16 +117,16 @@ final block is additional, and §4.6 explains why.
 | `design.md` §10 case | Test file |
 |---|---|
 | Call-start edge takes ownership; call-end does not release it | `LatchTests` |
-| Claim while peer absent, then peer returns → peer is owner, we mute | `LatchTests` |
+| Claim while peer absent, then peer returns -> peer is owner, we mute | `LatchTests` |
 | Concurrent equal-`seq` edges converge to the same owner on both sides | `ConvergenceTests` |
 | Stale lower-`seq` datagram does not move ownership | `ConvergenceTests` |
-| No peer → never muted, whatever `activeOwner` says | `MutePredicateTests` |
-| `activeOwner` outside the roster → both audible, `error` raised | `MutePredicateTests` |
-| `activeOwner` differing only by case → outside the roster, not a match | `RosterTests` |
-| `seq` delta beyond the bound → dropped, `error` raised | `IngressTests` |
-| `micLive` absent → version mismatch, not `false` | `IngressTests` |
-| `selfMicLive` true → never muted, even with peer present and owner | `MutePredicateTests` |
-| Quarantine: peer observed → adopt peer's owner even when our `seq` is higher | `QuarantineTests` |
+| No peer -> never muted, whatever `activeOwner` says | `MutePredicateTests` |
+| `activeOwner` outside the roster -> both audible, `error` raised | `MutePredicateTests` |
+| `activeOwner` differing only by case -> outside the roster, not a match | `RosterTests` |
+| `seq` delta beyond the bound -> dropped, `error` raised | `IngressTests` |
+| `micLive` absent -> version mismatch, not `false` | `IngressTests` |
+| `selfMicLive` true -> never muted, even with peer present and owner | `MutePredicateTests` |
+| Quarantine: peer observed -> adopt peer's owner even when our `seq` is higher | `QuarantineTests` |
 | Quarantine: manual claim and mic edge both exit quarantine and write | `QuarantineTests` |
 
 The case-sensitivity row deserves a note. `InvariantGlobalization=true` is set in
@@ -150,16 +150,16 @@ following from manual rows into deterministic automated tests:
 
 - claim ping-pong across an arbitrary number of alternations
 - simultaneous claims at equal `seq`, asserting both sides pick the *same* winner
-- one node asleep while the other advances, then rejoining — the lid-open case
+- one node asleep while the other advances, then rejoining - the lid-open case
 - simultaneous rejoin: both quarantined, both audible, converging on expiry
 - datagram loss up to and beyond the five-missed-beat presence window
-- replayed datagrams inside the presence window, which §7.1 accepts — asserting the
+- replayed datagrams inside the presence window, which §7.1 accepts - asserting the
   blast radius stays bounded rather than that the replay is prevented
 
 What stays manual is everything downstream of the reducer: whether the machine actually
 goes quiet.
 
-### 4.4 Wire format — golden vectors and fuzzing
+### 4.4 Wire format - golden vectors and fuzzing
 
 `design.md` §8 freezes the v1 wire format in phase 1 precisely so it never has to change
 across two machines. That freeze needs enforcement, because a canonicalization change is
@@ -170,14 +170,14 @@ byte-identical to "the peer is switched off."
   in [`wire-format.md`](wire-format.md). Any change to field order, number formatting,
   or whitespace fails the test. Changing a vector is therefore a deliberate, reviewable
   act that forces the version question.
-- **Ingress-order tests.** §7.1 fixes the order: `pairId` mismatch → bad `mac` →
-  `machineId` outside roster → `seq` delta over bound. Each rejection reason is asserted
+- **Ingress-order tests.** §7.1 fixes the order: `pairId` mismatch -> bad `mac` ->
+  `machineId` outside roster -> `seq` delta over bound. Each rejection reason is asserted
   independently, and asserted to fire *in that order*, because a datagram failing two
   checks must be attributed to the first.
 - **Fuzzing.** §10's hostile block lists four cases. A property-based fuzzer over the
   parser is cheap and covers far more: truncation, oversized fields, duplicate keys,
   nested objects, non-UTF8 bytes, `seq` at boundaries. The invariant asserted is not
-  "parses correctly" but "never throws, never mutates state, and never produces a mute" —
+  "parses correctly" but "never throws, never mutates state, and never produces a mute" -
   which is the Goal 1 property restated as a test.
 
 ### 4.5 Ledger and crash recovery
@@ -186,13 +186,13 @@ byte-identical to "the peer is switched off."
 failure modes need to be tested rather than assumed. §10's recovery block covers the happy
 path and the `state.json`-deleted case; these are added:
 
-- ledger present and valid → endpoints restored to `priorMute`, entries cleared
-- ledger describes a mute that never happened → restore is a no-op, entry cleared
-- ledger is corrupt JSON → `error` raised, app still starts, nothing is muted
-- ledger names an endpoint that no longer exists → entry cleared, no `error`
-- ledger written but process killed before `SetMute` → next start is a clean no-op
-- `state.json` temp file present but replace never happened → previous state intact
-- `config.json` and `state.json` carry different `pairId` → `error`, not silent tolerance
+- ledger present and valid -> endpoints restored to `priorMute`, entries cleared
+- ledger describes a mute that never happened -> restore is a no-op, entry cleared
+- ledger is corrupt JSON -> `error` raised, app still starts, nothing is muted
+- ledger names an endpoint that no longer exists -> entry cleared, no `error`
+- ledger written but process killed before `SetMute` -> next start is a clean no-op
+- `state.json` temp file present but replace never happened -> previous state intact
+- `config.json` and `state.json` carry different `pairId` -> `error`, not silent tolerance
 
 ### 4.6 Tests the design's §10 does not include
 
@@ -201,15 +201,15 @@ because an ADR in §1 introduced it:
 
 - hotkey registration failure raises `error` (§7.4 requires this; §10 never tests it)
 - a state change triggers an immediate extra broadcast, not just the next 2 s beat (§7.1)
-- presence window boundary: valid at 10 s, absent at 10 s + ε
+- presence window boundary: valid at 10 s, absent at 10 s + epsilon
 - `seq` bound boundary: delta of exactly 1000 accepted, 1001 dropped
-- an endpoint change we make ourselves within 250 ms is *not* read as a manual claim —
+- an endpoint change we make ourselves within 250 ms is *not* read as a manual claim -
   the self-feedback loop D-1 is prone to (§7.3)
 - an external unmute *after* 250 ms *is* read as a manual claim
 - every `TrayState` value has at least one producer, so §7.4's table cannot rot
 - every `TrayState` value maps to a distinct icon resource (ADR 0014)
 - an accepted `bye` clears presence immediately and **leaves `activeOwner` untouched**
-  (ADR 0016) — the property that keeps §5.2 intact
+  (ADR 0016) - the property that keeps §5.2 intact
 - a `bye` failing any ingress check is dropped like any other datagram
 - a datagram missing `bye` is a version mismatch, not `false`
 - pairing mode enrolls an unknown `machineId` only while the roster is incomplete *and*
@@ -219,9 +219,9 @@ because an ADR in §1 introduced it:
 - a `config.json` whose `pairKeyProtected` cannot be decrypted raises `error` with a
   re-pair cause, rather than crashing or falling back (ADR 0013)
 - ingress drops are aggregated per minute by reason rather than logged per datagram
-  (ADR 0015) — asserted on a burst, because the failure mode is a log that floods
+  (ADR 0015) - asserted on a burst, because the failure mode is a log that floods
 
-### 4.7 §9.2-3 — deferred to phase 2, by decision
+### 4.7 §9.2-3 - deferred to phase 2, by decision
 
 `design.md` §9.2-3 records an unverified, load-bearing assumption: that muting the render
 endpoint does not affect capture sessions. The whole auto-claim loop rests on it.
@@ -265,7 +265,7 @@ occasions it is wanted.
 
 Release readiness is therefore self-enforced: CI green on the commit being shipped, plus a
 completed [`manual-test-matrix.md`](manual-test-matrix.md) run. Neither is mechanically
-required, and both matter more here than usual — §4.1 is the reason.
+required, and both matter more here than usual - §4.1 is the reason.
 
 ---
 
@@ -278,7 +278,7 @@ dotnet publish src\SoloSpeaker.App\SoloSpeaker.App.csproj -c Release -o artifact
 ```
 
 Produces a single self-contained `SoloSpeaker.exe` (~49 MB, win-x64, no .NET runtime
-prerequisite on either machine). Trimming is deliberately off — see the comment in
+prerequisite on either machine). Trimming is deliberately off - see the comment in
 `SoloSpeaker.App.csproj`.
 
 ### 6.2 Install
@@ -296,7 +296,7 @@ Two details are load-bearing:
   icon on every boot. The task carries a 30 s delay for the same reason.
 - **No elevation.** `app.manifest` requests `asInvoker`. Endpoint mute and `RegisterHotKey`
   are per-user, and an elevated process cannot receive hotkeys from a non-elevated
-  foreground window — which would break manual claim on exactly the machine being used.
+  foreground window - which would break manual claim on exactly the machine being used.
 
 ### 6.3 Pairing
 
@@ -313,7 +313,7 @@ SoloSpeaker.exe --pair-join .\pairing.json
 ```
 
 B's first ordinary heartbeat completes A's roster. Both machines then display an
-8-hex-character fingerprint; compare them by eye. Both delete `pairing.json` — it is the
+8-hex-character fingerprint; compare them by eye. Both delete `pairing.json` - it is the
 one moment `pairKey` exists outside the two configs.
 
 Until both machines are paired, neither will ever mute: an unpaired machine has no
@@ -326,11 +326,11 @@ The honest procedure for two machines under one owner is: **stop both, update bo
 both.** It avoids the mixed-version window entirely, and takes under a minute.
 
 The window is worth naming because its symptom is misleading. If one machine runs a wire
-version the other rejects, the rejecting machine simply sees no peer — which is
+version the other rejects, the rejecting machine simply sees no peer - which is
 indistinguishable from "the peer is switched off," and per §5.5 leaves both audible. The
 failure is therefore safe but silent, and easy to misdiagnose as a network problem.
 
-The phase 1 → phase 2 upgrade is the payoff for the design's phase re-cut: `micLive` goes
+The phase 1 -> phase 2 upgrade is the payoff for the design's phase re-cut: `micLive` goes
 from hardcoded `false` to a real value with no format change at all, because §7.1 insisted
 on emitting the field from the start. That upgrade is wire-compatible in both directions,
 so it is the one case where a staggered rollout is genuinely safe.
@@ -375,19 +375,19 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 | 9 | Tray: five states, **icons** (ADR 0014), named producers, hotkey, sticky `error` | Every state reachable and observed; registration failure raises `error` |
 | 10 | Pairing ceremony (ADR 0011), including pairing-mode ingress exception | Two machines paired from scratch; fingerprints match |
 | 11 | Quarantine: cold start, resume, network-change restart | Lid-open does not move the mute |
-| 12 | **Single-instance guard** (ADR 0012), then packaging: publish, install, uninstall, logon task | Second launch exits without touching the ledger; clean install → reboot → still working → clean uninstall |
+| 12 | **Single-instance guard** (ADR 0012), then packaging: publish, install, uninstall, logon task | Second launch exits without touching the ledger; clean install -> reboot -> still working -> clean uninstall |
 | 13 | Manual matrix sign-off | [`manual-test-matrix.md`](manual-test-matrix.md) fully signed |
 
 Step 6 is worth a note: a good deal of PeerLink can be exercised on one machine by running
 two instances with separate config roots and ports. It does not cover subnet broadcast
 behaviour, but it covers the pipeline above the socket. Note that step 12's guard uses a
 single named mutex, so the two-instance technique needs the guard scoped by config root
-rather than by machine — decide that when step 12 lands, not before.
+rather than by machine - decide that when step 12 lands, not before.
 
 Step 8 comes before the tray deliberately. Bringing up five icon states without a log is
 harder than it needs to be, and the log is what makes step 10's pairing failures legible.
 
-## 8. Open items — all resolved
+## 8. Open items - all resolved
 
 Six gaps in `design.md` were identified while writing this plan. All are now settled by
 ADRs, and the resolutions are folded into §7's work breakdown above.
@@ -410,7 +410,7 @@ the wire format in phase 1 so that nothing on the wire becomes a two-machine mig
 prevent. Filing it as "nice to have" would have quietly converted it into "never, without
 a version bump".
 
-**§8.1 needed no new wire message.** The obvious design — a dedicated pairing datagram —
+**§8.1 needed no new wire message.** The obvious design - a dedicated pairing datagram -
 would itself have had to be frozen into v1. Reusing B's ordinary heartbeat, with a bounded
 pairing-mode exception to ingress step 3, avoids adding anything to a format that is about
 to be frozen. Authentication is unaffected: the HMAC check still runs first, so enrollment
@@ -418,10 +418,10 @@ still requires possession of `pairKey`.
 
 **§8.2's ordering is the substance.** A second instance is not merely redundant. Starting
 while the first holds a legitimate mute, it would replay the ledger, restore the endpoint,
-and clear the entry — leaving the first instance holding a mute whose recovery record no
+and clear the entry - leaving the first instance holding a mute whose recovery record no
 longer exists. A hard kill after that strands the endpoint permanently. The guard must
 precede ledger replay, which slightly qualifies §7.3's "before anything else".
 
-`design.md` §9.2's risk register is otherwise unchanged. §9.2-3 — whether render-mute
-disturbs capture sessions — remains open by decision: it will be verified against the
+`design.md` §9.2's risk register is otherwise unchanged. §9.2-3 - whether render-mute
+disturbs capture sessions - remains open by decision: it will be verified against the
 running app in phase 2 rather than by a standalone spike.

@@ -1,6 +1,6 @@
-# 0015 — A local rolling log, with aggregated ingress drops
+# 0015 - A local rolling log, with aggregated ingress drops
 
-**Status:** Accepted · 2026-09-27
+**Status:** Accepted - 2026-09-27
 **Resolves:** `implementation-plan.md` §8.5
 
 ## Context
@@ -18,7 +18,7 @@
 
 A rolling plain-text log at `%LOCALAPPDATA%\SoloSpeaker\logs\solospeaker-yyyyMMdd.log`.
 UTF-8, one line per event, seven days retained, capped at 10 MB per day. No logging
-framework — a small writer, to keep the single-file publish lean and avoid a
+framework - a small writer, to keep the single-file publish lean and avoid a
 configuration surface nobody will use.
 
 Logged at minimum:
@@ -34,7 +34,7 @@ Logged at minimum:
 - pairing events, and pairing-mode entry and expiry
 - quarantine entry and exit, with the reason for exit
 - denylist hits
-- **ingress drops, aggregated per minute by reason** — never one line per datagram
+- **ingress drops, aggregated per minute by reason** - never one line per datagram
 
 A tray menu item opens the log folder.
 
@@ -44,7 +44,7 @@ A tray menu item opens the log folder.
   reproducing them.
 - The aggregation rule is the load-bearing detail. Two machines beating every two seconds
   produce 86,400 datagrams a day; logging drops individually would bury the signal in the
-  noise it is made of. What matters is a *rate change* by reason — "4,300 bad-MAC drops
+  noise it is made of. What matters is a *rate change* by reason - "4,300 bad-MAC drops
   this minute" is the sentence that identifies a version mismatch.
 - The log contains roster IDs and `pairId`. It must never contain `pairKey`, and it is in
   `.gitignore` regardless.

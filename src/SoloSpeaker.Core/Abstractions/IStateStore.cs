@@ -14,7 +14,7 @@ namespace SoloSpeaker.Core.Abstractions;
 public interface IStateStore
 {
     /// <summary>
-    /// Writes <c>(activeOwner, seq)</c> atomically — temp file plus replace, never an
+    /// Writes <c>(activeOwner, seq)</c> atomically - temp file plus replace, never an
     /// in-place rewrite, so a crash mid-write cannot produce a truncated latch.
     /// </summary>
     void SaveState(ReadOnlySpan<byte> activeOwner, ulong seq);

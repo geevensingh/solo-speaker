@@ -1,8 +1,23 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 2 - incorporates adversarial review findings DR-001...DR-006
+**Status:** Revision 3 - adds the `bye` datagram and the naming change; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 3 changes, 2026-09-27.** One material change: a `bye` boolean joins the §7.1
+> payload and §7.6's unmute paths, so a machine leaving deliberately tells its peer instead
+> of being timed out. It narrows §9.2-5, which revision 2 recorded as bounded-not-fixed.
+> This lands now rather than when convenient because §8 freezes the wire format in phase 1,
+> which makes a later field a coordinated two-machine update - see
+> [`adr/0016-goodbye-datagram-in-v1.md`](adr/0016-goodbye-datagram-in-v1.md).
+>
+> Also in revision 3, and changing no decision: the product is renamed `SoloSpeaker`
+> throughout, including the `%LOCALAPPDATA%` paths
+> ([ADR 0007](adr/0007-solospeaker-naming.md)); §7.7's unspecified pairing transfer is
+> settled ([ADR 0011](adr/0011-pairing-bundle-file.md)); and four gaps this document never
+> covered are settled in ADRs 0012-0015 - a single-instance guard, `pairKey` protection at
+> rest, tray icon assets, and diagnostics. How the design gets built, tested, and deployed
+> is [`implementation-plan.md`](implementation-plan.md).
 
 > **Revision 2 changes.** An adversarial review of revision 1 found four Critical and
 > several High defects. The material changes: the mute predicate now consults microphone
@@ -12,20 +27,6 @@
 > (§7.3, §7.6); and §8's phases are re-cut so that every wire-format, pairing, and
 > persisted-schema decision lands in phase 1. Three decisions previously left open are now
 > recorded in §9 and marked for confirmation.
-
-> **Naming, 2026-09-27.** The product is `SoloSpeaker`, and this document was retitled
-> from "Proximity Mute Coordinator" with its `%LOCALAPPDATA%` paths updated to match. No
-> design decision changed. See [`adr/0007-solospeaker-naming.md`](adr/0007-solospeaker-naming.md).
-> How this design gets built, tested, and deployed is
-> [`implementation-plan.md`](implementation-plan.md).
-
-> **Amendment, 2026-09-27.** A `bye` field is added to the §7.1 payload and to §7.6's
-> unmute paths, narrowing §9.2-5. It is the only change to the design's substance since
-> revision 2, and it is made now rather than later because §8 freezes the wire format in
-> phase 1 — see [`adr/0016-goodbye-datagram-in-v1.md`](adr/0016-goodbye-datagram-in-v1.md).
-> Five further gaps this document did not cover are settled in ADRs 0011–0015: the pairing
-> transfer mechanism (§7.7), a single-instance guard, `pairKey` protection at rest, tray
-> icon assets, and diagnostics.
 
 ---
 
@@ -267,7 +268,7 @@ Payload (JSON, ~200 bytes):
   `false`. An absent field must never be inferred as `false`; a datagram missing it is
   treated as a version mismatch and raises the `error` tray state.
 - **`bye`** *(added 2026-09-27, see [ADR 0016](adr/0016-goodbye-datagram-in-v1.md))* marks
-  a deliberate departure. It is sent on graceful exit, logoff, and shutdown — three times
+  a deliberate departure. It is sent on graceful exit, logoff, and shutdown - three times
   about 50 ms apart, since UDP offers no retry and no further heartbeat follows. A receiver
   that accepts it clears peer presence immediately instead of waiting out the 10s window,
   which collapses the §9.2-5 asymmetry for the common case. It **never** alters
@@ -456,7 +457,7 @@ The transfer mechanism for steps 1 and 2 was left open here and is settled in
 [ADR 0011](adr/0011-pairing-bundle-file.md): a bundle file carries `pairId`, `pairKey`, and
 A's roster ID to B, and B's roster ID returns to A on its ordinary first heartbeat, which
 A accepts while its roster is incomplete and its bounded pairing window is open. A short
-code was not viable — the three artifacts total 512 bits, around 103 base32 characters.
+code was not viable - the three artifacts total 512 bits, around 103 base32 characters.
 
 ## 8. Implementation phases
 
@@ -548,19 +549,37 @@ have failed without any authentication at all.
 - `activeOwner` differing only by case -> treated as outside the roster, not as a match
 - `seq` delta beyond the bound -> dropped, `error` raised
 - `micLive` absent from a datagram -> version mismatch, not `false`
+- `bye` absent from a datagram -> version mismatch, not `false`
+- an accepted `bye` clears peer presence immediately, and **leaves `activeOwner`
+  untouched** - §5.2 holds, a departing peer never moves the latch
+- a `bye` failing any ingress check is dropped like any other datagram
 - `selfMicLive` true -> never muted, even when the peer is owner and present
 - quarantine: peer observed -> adopt peer's owner even when our `seq` is higher
 - quarantine: manual claim and mic edge both exit quarantine and write normally
+- pairing mode enrolls an unknown `machineId` only while the roster is incomplete **and**
+  the window is open, and only after the `mac` check passes (§7.7)
+- pairing mode expiring with an incomplete roster -> `error`, and that machine never mutes
 
 **Integration (two-machine manual matrix)** - claim ping-pong; call on each machine; call
 ending leaves ownership unchanged; laptop walks away -> desktop unmutes; laptop returns ->
 prior ownership reapplies; **lid-open does not move the mute**; both reboot simultaneously;
-headset swap mid-mute; volume-flyout unmute is honoured as a claim (D-1).
+headset swap mid-mute; volume-flyout unmute is honoured as a claim (D-1); **graceful exit
+unmutes the peer in under a second while a hard kill takes the full presence window**, and
+the two are distinguishable in the log.
 
 **Recovery** - hard-kill the process while muted, relaunch, confirm audio restored from the
 ledger; hard-kill while muted and run `--restore` instead; uninstall while muted; delete
-`state.json` but not `config.json` and confirm `error` rather than silent misbehaviour.
+`state.json` but not `config.json` and confirm `error` rather than silent misbehaviour; a
+second instance launched while the first holds a mute exits without touching the ledger
+(§7.3); a `config.json` that cannot be decrypted on this profile raises `error` with a
+re-pair cause rather than crashing.
 
 **Hostile** - spoofed datagram with wrong `pairId`; correct `pairId` but no valid `mac`
 (the case revision 1's HMAC could not actually have caught, since the key was derivable
-from the broadcast); valid `mac` but `machineId` outside the roster; `seq = uint64.Max`.
+from the broadcast); valid `mac` but `machineId` outside the roster; `seq = uint64.Max`;
+a replayed valid `bye`, which unmutes - the safe direction - but must not move
+`activeOwner`.
+
+The full per-release checklist derived from the three manual blocks above is
+[`manual-test-matrix.md`](manual-test-matrix.md), and the mapping from these unit rows to
+test files is [`implementation-plan.md`](implementation-plan.md) §4.2.
