@@ -1,6 +1,6 @@
-# Proximity Mute Coordinator — Design Plan
+# Proximity Mute Coordinator - Design Plan
 
-**Status:** Revision 2 — incorporates adversarial review findings DR-001…DR-006
+**Status:** Revision 2 - incorporates adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
 
@@ -22,23 +22,23 @@ one changes throughout the day. When both machines are physically together, exac
 should produce audio; the other should be globally muted so notification sounds, ringtones,
 and duplicated meeting audio don't overlap.
 
-When the machines are apart — laptop off, laptop elsewhere, or user working away from the
-desk — both machines should be unmuted, because there is no conflict to resolve.
+When the machines are apart - laptop off, laptop elsewhere, or user working away from the
+desk - both machines should be unmuted, because there is no conflict to resolve.
 
 ## 2. Goals
 
 Stated as a priority ordering, not a set of co-equal invariants. Where they conflict, the
-earlier goal wins — this ordering is load-bearing and is referenced by §5.5 and §9.
+earlier goal wins - this ordering is load-bearing and is referenced by §5.5 and §9.
 
 1. **Fail audible.** No reachable state leaves a machine muted with nothing running to
    unmute it. Silence is never the safe default. This outranks everything below.
 2. **Never mute a machine that is capturing audio.** A machine in a call stays audible even
    if that means both are briefly audible.
 3. **In steady state, exactly one machine unmuted while in proximity.** Steady state means
-   "absent an in-flight transition" — transient both-unmuted windows are permitted and
+   "absent an in-flight transition" - transient both-unmuted windows are permitted and
    bounded in §9.
 4. **Both unmuted whenever not in proximity.**
-5. **Ownership changes only on deliberate events** — a call starting, or a manual claim.
+5. **Ownership changes only on deliberate events** - a call starting, or a manual claim.
    Never on idle time, focus, lock state, or a machine merely appearing.
 6. No cloud service, no account, no broker. Local network only.
 7. Same binary on both machines; no privileged role in normal operation.
@@ -61,8 +61,8 @@ across the pair, lowest idle wins.
 
 This was rejected outright. It is wrong for the actual use case: during a meeting the user
 may not touch the meeting machine at all for long stretches while typing on the other one,
-which would hand "active" to the wrong machine mid-call. It also flaps — every glance at
-the other keyboard moves the mute — requiring hysteresis to paper over a model that was
+which would hand "active" to the wrong machine mid-call. It also flaps - every glance at
+the other keyboard moves the mute - requiring hysteresis to paper over a model that was
 wrong to begin with.
 
 Recorded here so it does not get re-proposed.
@@ -117,11 +117,11 @@ a function of current conditions.
 
 This exists because revision 1 let `activeOwner` hold any string. Renaming a PC, replacing
 a machine, or retiring an old device that once held the `pairId` could leave `activeOwner`
-naming nobody — at which point both machines satisfy "I am not the owner" and both mute,
+naming nobody - at which point both machines satisfy "I am not the owner" and both mute,
 persistently, across reboots, with no failsafe covering it.
 
 IDs are generated at enrollment, never derived from hostname, and never change when Windows
-is renamed. Comparison is ordinal byte equality — no casing, culture, or normalization
+is renamed. Comparison is ordinal byte equality - no casing, culture, or normalization
 semantics anywhere in the comparison path.
 
 ### 5.4 Convergence
@@ -129,14 +129,14 @@ semantics anywhere in the comparison path.
 Each machine broadcasts its current `(activeOwner, seq)`. On receipt, after the datagram
 passes the §7.1 authentication and roster checks:
 
-- `peerSeq > localSeq` → adopt peer's `(activeOwner, seq)`.
-- `peerSeq < localSeq` → ignore; our next broadcast will correct the peer.
-- `peerSeq == localSeq` and owners agree → no-op.
-- `peerSeq == localSeq` and owners **disagree** → concurrent edges. Break the tie by the
+- `peerSeq > localSeq` -> adopt peer's `(activeOwner, seq)`.
+- `peerSeq < localSeq` -> ignore; our next broadcast will correct the peer.
+- `peerSeq == localSeq` and owners agree -> no-op.
+- `peerSeq == localSeq` and owners **disagree** -> concurrent edges. Break the tie by the
   lexicographically smaller roster ID, evaluated identically on both sides, then bump `seq`
   so the resolution propagates.
 
-`seq` is `max(localSeq, lastSeenPeerSeq) + 1` — a Lamport clock. Note that this orders by
+`seq` is `max(localSeq, lastSeenPeerSeq) + 1` - a Lamport clock. Note that this orders by
 *event count*, not wall-clock time, which is the cause of the resume-from-sleep problem
 addressed in §7.6.
 
@@ -147,7 +147,7 @@ persisted state on both machines.
 
 ### 5.5 Mute decision
 
-Derived, not stored. Evaluated every tick. Stated in **positive space** — a machine mutes
+Derived, not stored. Evaluated every tick. Stated in **positive space** - a machine mutes
 only when it can affirmatively name the peer as owner, never merely because it failed to
 recognise itself:
 
@@ -165,10 +165,10 @@ Three consequences, each deliberate:
   mismatch also raises the `error` tray state so the condition is visible rather than
   silently benign.
 - **`!selfMicLive`.** A machine that is capturing audio is never muted, whatever the latch
-  says. This is the fix for the defect where a spurious mic edge on the idle machine —
-  a pre-join screen, a notification chime, an un-denylisted always-on consumer — took
+  says. This is the fix for the defect where a spurious mic edge on the idle machine -
+  a pre-join screen, a notification chime, an un-denylisted always-on consumer - took
   ownership and then permanently silenced the machine actually in the meeting.
-- **No peer → never muted**, regardless of `activeOwner`. Stored ownership survives the
+- **No peer -> never muted**, regardless of `activeOwner`. Stored ownership survives the
   peer's absence and applies again on return.
 
 The safety override does not touch §5.1's writers, so the stickiness requirement is
@@ -207,12 +207,12 @@ ever *relaxes* muting; it can never cause a mute that would not otherwise occur.
 ```
 
 `StateMachine` is a pure reducer: `(currentState, event, now) -> (newState, effects)`.
-All I/O lives at the edges. This is the main testability decision — the entire arbitration
+All I/O lives at the edges. This is the main testability decision - the entire arbitration
 model becomes unit-testable without sockets, audio devices, or a second machine.
 
 ## 7. Detailed design
 
-### 7.1 PeerLink — discovery and heartbeat
+### 7.1 PeerLink - discovery and heartbeat
 
 - **Transport:** UDP, IPv4 broadcast to the subnet broadcast address, fixed port (default
   `48292`, configurable).
@@ -230,24 +230,24 @@ Payload (JSON, ~200 bytes):
 ```json
 {
   "v": 1,
-  "pairId": "b1f0…",
-  "machineId": "7f3a9c…",
+  "pairId": "b1f0...",
+  "machineId": "7f3a9c...",
   "seq": 41,
-  "activeOwner": "2d81e4…",
+  "activeOwner": "2d81e4...",
   "micLive": false,
   "sentUtc": "2026-09-25T21:07:33.118Z",
-  "mac": "…"
+  "mac": "..."
 }
 ```
 
 - **Authentication:** `mac` is an HMAC-SHA256 over the canonicalized payload, keyed by
   **`pairKey`**. Revision 1 keyed it by a secret "derived from `pairId`" while broadcasting
-  `pairId` in the same datagram every 2 seconds — meaning anyone who received one packet
+  `pairId` in the same datagram every 2 seconds - meaning anyone who received one packet
   could forge every subsequent one, and the authentication delivered none of the property
   it claimed. `pairKey` is generated at pairing and exists only on disk on the two
   machines.
-- **Ingress order:** drop on `pairId` mismatch → drop on bad `mac` → drop if `machineId`
-  is not in the roster → drop if `seq` delta exceeds the §5.4 bound. Only then process.
+- **Ingress order:** drop on `pairId` mismatch -> drop on bad `mac` -> drop if `machineId`
+  is not in the roster -> drop if `seq` delta exceeds the §5.4 bound. Only then process.
 - **`micLive`** is always emitted explicitly, including in phase 1 where it is hardcoded
   `false`. An absent field must never be inferred as `false`; a datagram missing it is
   treated as a version mismatch and raises the `error` tray state.
@@ -257,7 +257,7 @@ Payload (JSON, ~200 bytes):
 - **Replay** within the presence window remains possible and is accepted. The blast radius
   is your own speaker, and §5.5's positive predicate bounds it.
 
-### 7.2 MicWatcher — two signals, not one
+### 7.2 MicWatcher - two signals, not one
 
 Primary mechanism: WASAPI. Enumerate the default **capture** endpoint's sessions via
 `IAudioSessionManager2::GetSessionEnumerator`, and treat "at least one session in
@@ -270,42 +270,42 @@ now split, because the two consumers want opposite biases.
 
 | | `selfMicLive` (safety, §5.5) | claim edge (ownership, §5.1) |
 |---|---|---|
-| **Bias** | Broad and fast — prefer a false positive | Narrow and slow — prefer a false negative |
+| **Bias** | Broad and fast - prefer a false positive | Narrow and slow - prefer a false negative |
 | **Denylist applied** | Yes | Yes |
-| **Debounce applied** | **No** — engages the instant the mic opens | **Yes** — default 5s |
+| **Debounce applied** | **No** - engages the instant the mic opens | **Yes** - default 5s |
 | **Consequence of being wrong** | Both machines audible, briefly | Nothing; the latch does not move |
 
 The safety signal engaging immediately is what removes the start-of-call outage: the
 machine becomes audible at mic-open, and the ownership write follows 5s later once the
 session has proven durable. A pre-join screen the user abandons therefore makes that
-machine audible for as long as they sit on it — but never moves ownership.
+machine audible for as long as they sit on it - but never moves ownership.
 
 Known hazards:
 
 | Hazard | Effect | Mitigation |
 |---|---|---|
 | Teams/Zoom open the mic on the **pre-join screen** | Would claim before the user joins | Debounce gates the ownership write only; safety signal is unaffected |
-| Always-on mic consumers (NVIDIA Broadcast, Krisp, voice assistants, headset utilities) | Mic never goes idle; no rising edge ever fires again, **and** the machine becomes permanently unmutable via the safety signal | Denylist of process names. This is the failure mode with the worst blast radius, so the denylist needs a discovery affordance — see §7.4 |
+| Always-on mic consumers (NVIDIA Broadcast, Krisp, voice assistants, headset utilities) | Mic never goes idle; no rising edge ever fires again, **and** the machine becomes permanently unmutable via the safety signal | Denylist of process names. This is the failure mode with the worst blast radius, so the denylist needs a discovery affordance - see §7.4 |
 | Mic opened for a notification chime | Spurious claim | Debounce + denylist |
-| Machine is muted and then joins a call | Must still be able to claim | Render-endpoint mute does not affect capture sessions, so the edge still fires. **Assumption, not verified** — see §9 |
+| Machine is muted and then joins a call | Must still be able to claim | Render-endpoint mute does not affect capture sessions, so the edge still fires. **Assumption, not verified** - see §9 |
 | Both machines mic-live simultaneously | Neither can be muted by §5.5 | Accepted: both audible. Ownership still resolves normally underneath |
 
-The denylist has the wrong polarity for an open-ended domain — it must enumerate every
+The denylist has the wrong polarity for an open-ended domain - it must enumerate every
 bad actor, and its failure mode is silent. Mitigated in §7.4 rather than here.
 
-A secondary detection path exists — the registry
-`HKCU\…\CapabilityAccessManager\ConsentStore\microphone\…` keys, where `LastUsedTimeStop == 0`
+A secondary detection path exists - the registry
+`HKCU\...\CapabilityAccessManager\ConsentStore\microphone\...` keys, where `LastUsedTimeStop == 0`
 means live. Not needed for arbitration, but a useful cross-check during development and a
 fallback if WASAPI enumeration proves unreliable for some app.
 
 ### 7.3 MuteActuator and the mutation ledger
 
-- `IMMDeviceEnumerator::GetDefaultAudioEndpoint(eRender, eMultimedia)` →
+- `IMMDeviceEnumerator::GetDefaultAudioEndpoint(eRender, eMultimedia)` ->
   `IAudioEndpointVolume::SetMute`.
-- Idempotent by construction. **Not** `VK_VOLUME_MUTE` — that is a toggle and will drift
+- Idempotent by construction. **Not** `VK_VOLUME_MUTE` - that is a toggle and will drift
   permanently out of sync the first time anything else touches it.
-- Reconcile every tick: if actual mute state ≠ desired, correct it.
-- Subscribe to `IMMNotificationClient` for default-device changes so switching headset ↔
+- Reconcile every tick: if actual mute state != desired, correct it.
+- Subscribe to `IMMNotificationClient` for default-device changes so switching headset <->
   speakers re-applies the desired state to the new endpoint, and so the *previous* endpoint
   is released (see ledger below).
 
@@ -316,7 +316,7 @@ the app was gone. Every endpoint this app has muted is therefore recorded, befor
 mutation, to `%LOCALAPPDATA%\MuteCoordinator\ledger.json`:
 
 ```json
-{ "endpointId": "{0.0.0.00000000}.{9c8…}", "priorMute": false, "mutedAtUtc": "…" }
+{ "endpointId": "{0.0.0.00000000}.{9c8...}", "priorMute": false, "mutedAtUtc": "..." }
 ```
 
 - Written **before** `SetMute`, flushed to disk, then the mutation is applied. An entry may
@@ -324,7 +324,7 @@ mutation, to `%LOCALAPPDATA%\MuteCoordinator\ledger.json`:
 - Cleared per-endpoint when this app restores that endpoint.
 - **On every startup, before anything else**, the ledger is replayed: any endpoint still
   listed is restored to `priorMute` and cleared. This is what makes a hard-kill recoverable
-  — the next launch repairs it without the user knowing anything was wrong.
+  - the next launch repairs it without the user knowing anything was wrong.
 - The app ships a `--restore` switch that replays and clears the ledger without starting
   the service, and the uninstaller invokes it. This is the uninstall path revision 1 lacked.
 
@@ -334,11 +334,11 @@ external changes from its own by comparing against the last value it wrote and i
 change notifications within 250 ms of its own `SetMute`, which prevents the self-feedback
 loop this option is prone to.
 
-### 7.4 Manual claim — hotkey and tray
+### 7.4 Manual claim - hotkey and tray
 
 - Global hotkey via `RegisterHotKey`, default `Ctrl+Alt+Shift+M`, configurable. If
   registration fails (already taken), surface a tray balloon **and** enter the `error`
-  state — a silently dead hotkey on one machine is a one-sided, permanently non-functional
+  state - a silently dead hotkey on one machine is a one-sided, permanently non-functional
   control, and it is indistinguishable from normal operation until you need it.
 - Semantics are **"claim this machine"**, not "toggle". Idempotent, and unambiguous no
   matter what state the pair is in.
@@ -355,7 +355,7 @@ loop this option is prone to.
 | `muted` | §5.5 predicate true |
 | `alone` | no peer heartbeat within the presence window |
 | `quarantine` | §7.6 rejoin window, state not yet reconciled |
-| `error` | `activeOwner` outside the roster · hotkey registration failure · `seq` bound exceeded · missing `micLive` (version mismatch) · ledger replay failure · endpoint enumeration failure |
+| `error` | `activeOwner` outside the roster; hotkey registration failure; `seq` bound exceeded; missing `micLive` (version mismatch); ledger replay failure; endpoint enumeration failure |
 
 - `error` is sticky until acknowledged and its tooltip names the specific cause. Because
   ownership is sticky, the tray is the only visible explanation for why a machine is
@@ -365,7 +365,7 @@ loop this option is prone to.
   this, diagnosing an always-on mic consumer requires knowing the problem exists, knowing
   the process name, and hand-editing JSON.
 
-### 7.5 StateStore — persistence
+### 7.5 StateStore - persistence
 
 - `(activeOwner, seq)` written to `%LOCALAPPDATA%\MuteCoordinator\state.json` on every
   change, written atomically (temp file + `File.Replace`).
@@ -380,7 +380,7 @@ loop this option is prone to.
 ### 7.6 Failsafes and rejoin
 
 **Unmute paths.** Revision 1 asserted "unmute unconditionally on process exit, including
-crash," and named finalizers plus `SystemEvents.SessionEnding` as the mechanism — neither
+crash," and named finalizers plus `SystemEvents.SessionEnding` as the mechanism - neither
 survives a hard kill, so the guarantee was not delivered. Restated honestly:
 
 | Path | Mechanism |
@@ -392,11 +392,11 @@ survives a hard kill, so the guarantee was not delivered. Restated honestly:
 
 **Rejoin quarantine.** A machine that has been asleep or powered off carries a persisted
 `seq` that may exceed the peer's, even though its information is older in wall-clock terms
-— a Lamport clock orders by event count, not time. Revision 1 therefore let opening a lid
+- a Lamport clock orders by event count, not time. Revision 1 therefore let opening a lid
 move the mute away from the machine the user was actively using, violating Goal 5.
 
-On cold start **and on resume from sleep** — the same code path; treating these separately
-was a defect in the first attempt at this fix — the machine enters `quarantine`:
+On cold start **and on resume from sleep** - the same code path; treating these separately
+was a defect in the first attempt at this fix - the machine enters `quarantine`:
 
 - It does **not** broadcast its persisted ownership, and does not apply mute.
 - If the peer is observed during the window, the peer's `(activeOwner, seq)` is adopted
@@ -406,7 +406,7 @@ was a defect in the first attempt at this fix — the machine enters `quarantine
 - If the window expires with no peer, the machine resumes normally from persisted state.
 - **Live events are never suppressed.** A manual claim or a mic-edge claim during
   quarantine exits quarantine immediately and writes normally. Without this carve-out, a
-  machine that boots directly into a meeting would mute itself mid-call — which inverts
+  machine that boots directly into a meeting would mute itself mid-call - which inverts
   the design's highest-priority requirement in the name of fixing a lower-priority one.
 - The window is 12s, and it starts on **first successful socket bind and send**, not on
   process start, because the network stack is routinely unavailable for several seconds
@@ -433,7 +433,7 @@ condition §5.5's positive predicate exists to catch.
 
 Revision 1 drew its phase boundary *through* the wire format, the persisted schema, and the
 pairing ceremony. Seven items that are free to change today would have become two-machine
-migrations the moment phase 1 ran on both boxes — `pairKey` most sharply, since adding it
+migrations the moment phase 1 ran on both boxes - `pairKey` most sharply, since adding it
 later forces a second hand-copy ceremony plus a mixed-version window whose symptom is
 byte-identical to "the peer is switched off."
 
@@ -443,14 +443,14 @@ yet.
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| **1 — Foundation + manual claim** | State machine, roster, PeerLink with **final v1 wire format including `micLive`**, `pairKey` + HMAC, pairing ceremony, StateStore, rejoin quarantine, MuteActuator **with ledger, `--restore`, and device-change handling**, tray with all states and producers, hotkey. Mic detection **not** built; `micLive` hardcoded `false`. | Claim on either machine mutes the other. Hard-killing the app and relaunching restores audio. Headset swap does not strand a muted endpoint. Uninstall restores audio. A forged datagram without `pairKey` is dropped. A lid-open does not move the mute. |
-| **2 — Call detection** | MicWatcher, both signals (§7.2), denylist + discovery UI, debounce, `micLive` populated on the wire and in §5.5. | Joining a call on either machine takes ownership without touching the hotkey, and never mutes a machine that is capturing audio. |
-| **3 — Deferred** | Bluetooth RSSI proximity, if LAN presence proves too coarse in practice. | Only on evidence from daily use. |
+| **1 - Foundation + manual claim** | State machine, roster, PeerLink with **final v1 wire format including `micLive`**, `pairKey` + HMAC, pairing ceremony, StateStore, rejoin quarantine, MuteActuator **with ledger, `--restore`, and device-change handling**, tray with all states and producers, hotkey. Mic detection **not** built; `micLive` hardcoded `false`. | Claim on either machine mutes the other. Hard-killing the app and relaunching restores audio. Headset swap does not strand a muted endpoint. Uninstall restores audio. A forged datagram without `pairKey` is dropped. A lid-open does not move the mute. |
+| **2 - Call detection** | MicWatcher, both signals (§7.2), denylist + discovery UI, debounce, `micLive` populated on the wire and in §5.5. | Joining a call on either machine takes ownership without touching the hotkey, and never mutes a machine that is capturing audio. |
+| **3 - Deferred** | Bluetooth RSSI proximity, if LAN presence proves too coarse in practice. | Only on evidence from daily use. |
 
 **Phase 1 ships with a known, recorded limitation**: it cannot evaluate requirement (1),
 because nothing detects calls yet. Manual claim therefore covers cases it was never meant
 to cover, and a machine in a meeting can be muted by a claim on the other machine. This is
-an *accepted* limitation for a single-user, author-operated deployment, not an oversight —
+an *accepted* limitation for a single-user, author-operated deployment, not an oversight -
 pulling MicWatcher into phase 1 would collapse the one genuinely correct de-risking
 decision in the original plan. It is recorded here so that phase 1's exit criteria are not
 mistaken for "the product works."
@@ -463,7 +463,7 @@ only.
 
 ## 9. Decisions recorded, and open risks
 
-### 9.1 Decisions taken in revision 2 — confirm or override
+### 9.1 Decisions taken in revision 2 - confirm or override
 
 | # | Decision | Rationale | Reversible? |
 |---|---|---|---|
@@ -477,7 +477,7 @@ in spirit if not in letter.
 
 ### 9.2 Open risks
 
-1. **LAN ≠ proximity.** A laptop in another room on the same Wi-Fi counts as present and
+1. **LAN != proximity.** A laptop in another room on the same Wi-Fi counts as present and
    will be muted. Accepted for v1 by explicit decision; phase 3 exists if it bites.
    The *opposite* direction also exists and was unrecorded in revision 1: two machines
    physically adjacent but on different networks (one on Wi-Fi, one on a hotspot or
@@ -490,7 +490,7 @@ in spirit if not in letter.
    empirically before phase 2 is considered done, not assumed.
 4. **Non-default render endpoints.** Only the default endpoint is muted; audio routed to a
    second device stays audible. Accepted.
-5. **Unmute latency is asymmetric in the unsafe direction** — muting is immediate, but
+5. **Unmute latency is asymmetric in the unsafe direction** - muting is immediate, but
    restoring audio after peer loss takes up to the 10s presence window. Silence therefore
    arrives fast and leaves slowly, which is the wrong way round given Goal 1. Bounded, not
    fixed.
@@ -501,34 +501,34 @@ in spirit if not in letter.
 
 ## 10. Testing
 
-The test plan tracks §9 and the review findings directly — revision 1's matrix exercised
+The test plan tracks §9 and the review findings directly - revision 1's matrix exercised
 none of its own risk register, and its single "hostile" row tested only attacks that would
 have failed without any authentication at all.
 
-**Unit** — the reducer is pure, so the whole arbitration model is testable in-process:
+**Unit** - the reducer is pure, so the whole arbitration model is testable in-process:
 
 - call-start edge takes ownership; call-end does not release it
-- claim on peer while peer absent, then peer returns → peer is owner, we mute
+- claim on peer while peer absent, then peer returns -> peer is owner, we mute
 - concurrent equal-`seq` edges converge to the same owner on both sides
 - stale lower-`seq` datagram does not move ownership
-- no peer → never muted, whatever `activeOwner` says
-- `activeOwner` outside the roster → **both** machines audible, `error` raised
-- `activeOwner` differing only by case → treated as outside the roster, not as a match
-- `seq` delta beyond the bound → dropped, `error` raised
-- `micLive` absent from a datagram → version mismatch, not `false`
-- `selfMicLive` true → never muted, even when the peer is owner and present
-- quarantine: peer observed → adopt peer's owner even when our `seq` is higher
+- no peer -> never muted, whatever `activeOwner` says
+- `activeOwner` outside the roster -> **both** machines audible, `error` raised
+- `activeOwner` differing only by case -> treated as outside the roster, not as a match
+- `seq` delta beyond the bound -> dropped, `error` raised
+- `micLive` absent from a datagram -> version mismatch, not `false`
+- `selfMicLive` true -> never muted, even when the peer is owner and present
+- quarantine: peer observed -> adopt peer's owner even when our `seq` is higher
 - quarantine: manual claim and mic edge both exit quarantine and write normally
 
-**Integration (two-machine manual matrix)** — claim ping-pong; call on each machine; call
-ending leaves ownership unchanged; laptop walks away → desktop unmutes; laptop returns →
+**Integration (two-machine manual matrix)** - claim ping-pong; call on each machine; call
+ending leaves ownership unchanged; laptop walks away -> desktop unmutes; laptop returns ->
 prior ownership reapplies; **lid-open does not move the mute**; both reboot simultaneously;
 headset swap mid-mute; volume-flyout unmute is honoured as a claim (D-1).
 
-**Recovery** — hard-kill the process while muted, relaunch, confirm audio restored from the
+**Recovery** - hard-kill the process while muted, relaunch, confirm audio restored from the
 ledger; hard-kill while muted and run `--restore` instead; uninstall while muted; delete
 `state.json` but not `config.json` and confirm `error` rather than silent misbehaviour.
 
-**Hostile** — spoofed datagram with wrong `pairId`; correct `pairId` but no valid `mac`
+**Hostile** - spoofed datagram with wrong `pairId`; correct `pairId` but no valid `mac`
 (the case revision 1's HMAC could not actually have caught, since the key was derivable
 from the broadcast); valid `mac` but `machineId` outside the roster; `seq = uint64.Max`.

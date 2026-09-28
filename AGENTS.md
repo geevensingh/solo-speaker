@@ -134,18 +134,32 @@ The rules below are language-agnostic and apply now.
 
 ### ASCII-only repository
 
-- Tracked source files **must be ASCII**. Use `-` for em/en-dash, `...` for
-  ellipsis, `->` for right-arrow, `<=` / `!=` / `x` for math, `[x]` for check
-  marks, and ASCII box-drawing (`+`, `-`, `|`) for diagrams.
-- `docs/design.md` is currently **not** compliant: it uses box-drawing
-  characters, em dashes, `->`-style arrows, and `!=` typography as Unicode
-  codepoints. Cleaning it up is tracked separately; do not treat its current
-  content as a precedent, and do not add new non-ASCII anywhere.
-- A repo-wide ASCII lint gate is added with the toolchain (section 2). Until it
-  exists, this is contributor-enforced. When the gate is added, it must carry an
-  explicit `ALLOWED` set so a genuinely-needed codepoint (e.g. a tray UI glyph)
-  can be allowlisted with an inline comment explaining why, rather than
-  disabling the check.
+- Tracked files **must be ASCII**, except for the codepoints in the allowlist
+  below. Use `-` for em/en-dash, `...` for ellipsis, `->` for right-arrow,
+  `<->` for left-right-arrow, `<=` / `!=` / `x` for math, and `[x]` for check
+  marks.
+- **Allowlist.** These codepoints are permitted because ASCII substitutes would
+  materially degrade the documents that use them:
+
+  | Codepoint | Char | Permitted use |
+  |---|---|---|
+  | `U+00A7` | section sign | Cross-references in docs (`section 5.5` shorthand) |
+  | `U+2500` | box horizontal | Component diagrams in `docs/design.md` |
+  | `U+2502` | box vertical | Component diagrams |
+  | `U+250C` | box down-and-right | Component diagrams |
+  | `U+2510` | box down-and-left | Component diagrams |
+  | `U+2514` | box up-and-right | Component diagrams |
+  | `U+2518` | box up-and-left | Component diagrams |
+  | `U+252C` | box down-and-horizontal | Component diagrams |
+  | `U+25BC` | down-pointing triangle | Arrowheads in component diagrams |
+
+- Anything outside that table is a violation, including in code, comments,
+  commit messages, and new docs. If you genuinely need a new codepoint (e.g. a
+  tray UI glyph), add a row here **and** to the lint gate's `ALLOWED` set with a
+  comment explaining why - do not disable or loosen the check.
+- A repo-wide ASCII lint gate is added with the toolchain (section 2) and must
+  encode exactly the table above. Until it exists, this rule is
+  contributor-enforced.
 
 ## 5. Testing
 
