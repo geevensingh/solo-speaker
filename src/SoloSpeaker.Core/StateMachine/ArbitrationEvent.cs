@@ -137,6 +137,16 @@ public abstract record ArbitrationEvent
     public sealed record ErrorAcknowledged : ArbitrationEvent;
 
     /// <summary>
+    /// The component that owns a continuous condition reports that it is no longer true.
+    /// </summary>
+    /// <remarks>
+    /// The retraction path a continuous cause needs. §7.4 forbids acknowledging one while it
+    /// holds, so without this a cause raised from outside the reducer - a cross-file
+    /// <c>pairId</c> mismatch, an incomplete roster - could never be cleared at all.
+    /// </remarks>
+    public sealed record ErrorResolved(ErrorCause Cause) : ArbitrationEvent;
+
+    /// <summary>
     /// The periodic pulse. Drives the §7.1 cadence, §7.6 expiry, and the re-evaluation
     /// §5.5 means by "evaluated every tick".
     /// </summary>

@@ -134,6 +134,60 @@ public sealed class UnverifiablePeerTests
         Assert.Equal(TrayState.Error, harness.Tray);
     }
 
+    /// <summary>
+    /// The two continuous causes the reducer cannot re-derive survive acknowledgement, and
+    /// are cleared only by their owner retracting them.
+    /// </summary>
+    /// <remarks>
+    /// Shipped broken in row 3: <c>EffectiveError</c> discarded every continuous cause it
+    /// had not derived itself, so §7.5's cross-file <c>pairId</c> mismatch and §7.7's
+    /// incomplete roster resolved to no error at all - the silent tolerance §7.5 exists to
+    /// forbid. Row 3's suite missed it because every continuous-cause test used
+    /// <see cref="ErrorCause.ActiveOwnerOutsideRoster"/>, the one case that is re-derived.
+    /// </remarks>
+    [Theory]
+    [InlineData(ErrorCause.StatePairIdMismatch)]
+    [InlineData(ErrorCause.RosterIncompleteAfterPairing)]
+    public void An_externally_raised_continuous_cause_is_reported_and_survives_acknowledgement(ErrorCause cause)
+    {
+        ReducerHarness harness = ReducerHarness.For().Apply(new ArbitrationEvent.ErrorRaised(cause));
+
+        Assert.Equal(cause, harness.Error);
+        Assert.Equal(TrayState.Error, harness.Tray);
+
+        harness.Apply(TimeSpan.FromMinutes(5), new ArbitrationEvent.Tick());
+        Assert.Equal(cause, harness.Error);
+
+        harness.Apply(new ArbitrationEvent.ErrorAcknowledged());
+        Assert.Equal(cause, harness.Error);
+        Assert.Equal(TrayState.Error, harness.Tray);
+    }
+
+    /// <summary>The owner of the condition retracts it once it stops being true.</summary>
+    [Theory]
+    [InlineData(ErrorCause.StatePairIdMismatch)]
+    [InlineData(ErrorCause.RosterIncompleteAfterPairing)]
+    public void A_continuous_cause_is_cleared_by_its_owner_retracting_it(ErrorCause cause)
+    {
+        ReducerHarness harness = ReducerHarness.For()
+            .Apply(new ArbitrationEvent.ErrorRaised(cause))
+            .Apply(new ArbitrationEvent.ErrorResolved(cause));
+
+        Assert.Equal(ErrorCause.None, harness.Error);
+        Assert.NotEqual(TrayState.Error, harness.Tray);
+    }
+
+    /// <summary>A retraction naming a different cause leaves the latched one alone.</summary>
+    [Fact]
+    public void Retracting_a_cause_that_is_not_the_latched_one_changes_nothing()
+    {
+        ReducerHarness harness = ReducerHarness.For()
+            .Apply(new ArbitrationEvent.ErrorRaised(ErrorCause.StatePairIdMismatch))
+            .Apply(new ArbitrationEvent.ErrorResolved(ErrorCause.LedgerReplayFailed));
+
+        Assert.Equal(ErrorCause.StatePairIdMismatch, harness.Error);
+    }
+
     /// <summary>§7.4: sticky until acknowledged.</summary>
     [Fact]
     public void An_edge_error_is_sticky_until_acknowledged()

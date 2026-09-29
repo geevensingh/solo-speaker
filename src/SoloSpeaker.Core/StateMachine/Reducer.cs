@@ -46,7 +46,8 @@ public static class Reducer
             ArbitrationEvent.QuarantineEntered => Entered(state, now),
             ArbitrationEvent.QuarantineRestarted => Restarted(state, now),
             ArbitrationEvent.ErrorRaised raised => Raise(state, raised.Cause),
-            ArbitrationEvent.ErrorAcknowledged => state with { StickyError = ErrorCause.None },
+            ArbitrationEvent.ErrorResolved resolved => Resolve(state, resolved.Cause),
+            ArbitrationEvent.ErrorAcknowledged => Acknowledge(state),
             ArbitrationEvent.Tick => Tick(context, state, effects, now),
             _ => state,
         };
@@ -264,6 +265,22 @@ public static class Reducer
         // §7.4: sticky until acknowledged, and the first cause raised is the one named.
         state.StickyError == ErrorCause.None ? state with { StickyError = cause } : state;
 
+    /// <remarks>
+    /// §7.4: a continuous cause "cannot be acknowledged while it remains true". The two the
+    /// reducer cannot re-derive are therefore cleared by their owner retracting them, never
+    /// by the user dismissing the tray - otherwise acknowledging would clear the tray while
+    /// the machine sat in exactly the condition the error exists to expose.
+    /// </remarks>
+    private static ArbitrationState Acknowledge(ArbitrationState state) =>
+        state.StickyError.IsContinuous() ? state : state with { StickyError = ErrorCause.None };
+
+    /// <remarks>
+    /// Raised by whichever component owns the condition once it stops being true - row 10
+    /// when the roster completes, row 5 when a repaired configuration is loaded.
+    /// </remarks>
+    private static ArbitrationState Resolve(ArbitrationState state, ErrorCause cause) =>
+        state.StickyError == cause ? state with { StickyError = ErrorCause.None } : state;
+
     // §7.1's 2 s cadence. A quarantined machine sends nothing at all - design revision 7 -
     // because any value it could put in activeOwner either erases the peer's ownership or
     // reasserts its own stale claim.
@@ -326,9 +343,8 @@ public static class Reducer
 
     private static ErrorCause EffectiveError(ArbitrationState state, Roster roster)
     {
-        // Continuous causes are re-derived every evaluation and cannot be acknowledged
-        // while true. §5.5's corrupt-owner case is the one the reducer can see for itself;
-        // the other two arrive from rows 5 and 10 as edge events.
+        // §5.5's corrupt-owner case is the one continuous cause the reducer can see for
+        // itself, so it is re-derived on every evaluation and needs no latch.
         bool ownerOutsideRoster = !state.ActiveOwner.IsNone && !roster.Contains(state.ActiveOwner);
 
         if (ownerOutsideRoster)
@@ -336,7 +352,12 @@ public static class Reducer
             return ErrorCause.ActiveOwnerOutsideRoster;
         }
 
-        return state.StickyError.IsContinuous() ? ErrorCause.None : state.StickyError;
+        // Everything else - including the two continuous causes raised from outside, which
+        // the reducer cannot re-derive - is reported from the latch. An earlier version
+        // discarded continuous causes here, which silently swallowed §7.5's cross-file
+        // mismatch and §7.7's incomplete roster: the two conditions whose whole point is
+        // that they are raised rather than tolerated.
+        return state.StickyError;
     }
 
     private static TrayState TrayFor(
