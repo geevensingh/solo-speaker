@@ -20,10 +20,25 @@ public enum TrayState
     Quarantine,
 
     /// <summary>
-    /// Raised by any of: <c>activeOwner</c> outside the roster, hotkey registration
-    /// failure, <c>seq</c> bound exceeded, a datagram missing <c>micLive</c>, ledger
-    /// replay failure, or endpoint enumeration failure. Sticky until acknowledged, and
-    /// the tooltip must name the specific cause.
+    /// Raised by any of: <c>activeOwner</c> outside the roster and not
+    /// <c>MachineId.None</c>, hotkey registration failure, <c>seq</c> bound exceeded, an
+    /// unknown <c>v</c> from an authenticated peer, ledger replay failure, or endpoint
+    /// enumeration failure. Sticky until acknowledged, and the tooltip must name the
+    /// specific cause.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <c>MachineId.None</c> is excluded deliberately: it is the ordinary pre-claim state
+    /// of §5, outside the roster by construction, and without the carve-out a freshly
+    /// paired pair would sit in sticky error from the moment the ceremony completed.
+    /// </para>
+    /// <para>
+    /// "A datagram missing <c>micLive</c>" was listed here through design revision 5 and is
+    /// struck: <c>docs/wire-format.md</c> rule 2 makes the receiver re-canonicalize parsed
+    /// values, so a datagram missing any signed field cannot be reconstructed and dies at
+    /// §7.1 step 2 - silent, and counted toward the unverifiable-peer producer instead.
+    /// Leaving it would have been the defect this enum's own summary forbids.
+    /// </para>
+    /// </remarks>
     Error,
 }

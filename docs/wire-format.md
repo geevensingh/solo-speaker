@@ -49,7 +49,7 @@ rate-based producer is the compensating control.
 | `pairId` | hex string, 32 chars | 128-bit pairing GUID. Transmitted; scopes the namespace |
 | `machineId` | hex string, 32 chars | Sender's 128-bit roster ID |
 | `seq` | integer | Lamport clock. Orders by *event count*, never wall-clock time |
-| `activeOwner` | hex string, 32 chars | A roster ID. Never a hostname (§5.3) |
+| `activeOwner` | hex string, 32 chars | A roster ID, or `MachineId.None` - 32 zeros - before the first claim (`design.md` §5). Never a hostname (§5.3) |
 | `micLive` | boolean | **Always emitted explicitly**, including phase 1 where it is `false` |
 | `bye` | boolean | Deliberate departure. Clears peer presence immediately; **never** alters `activeOwner`. See [ADR 0016](adr/0016-goodbye-datagram-in-v1.md) |
 | `sentUtc` | ISO 8601 UTC, ms | Informational and logged only. **Never a drop condition** |
@@ -64,6 +64,25 @@ captured packet was enough to forge every subsequent one.
 1. Fields are serialized in exactly the order in the table above, `mac` last.
 2. `mac` is computed over the document with the `mac` field **omitted entirely** - not
    present-and-empty, not present-and-null.
+
+   **The receiver re-canonicalizes.** It parses the field values, re-emits rules 1 and 3
+   through 9 from those values, and MACs *that* - never the bytes it received, and never
+   the received bytes with `mac` textually excised. The two strategies **accept different
+   byte sets**, so this is part of the v1 interop contract and not an implementation
+   detail. It was unspecified through revision 5 of `design.md`; see issue #7.
+
+   Two consequences follow, and both are load-bearing:
+
+   - A datagram missing any signed field cannot be reconstructed and therefore cannot be
+     verified. It dies at `design.md` §7.1 **step 2**, counted, rather than at step 5. That
+     is what lets §7.1's unverifiable-peer producer fire at all, and it is why step 5 names
+     unknown `v` alone.
+   - A datagram whose *values* are correct but whose *bytes* are not canonical - extra
+     whitespace, say - still verifies, because the MAC authenticates the values.
+     Canonicalization exists so that sender and receiver agree on which bytes represent
+     those values, not to make the received framing itself significant. Receivers
+     nonetheless reject duplicate keys, unknown keys, trailing data, and non-canonical
+     scalar forms, and attribute every such rejection to step 2.
 3. UTF-8, no BOM.
 4. No insignificant whitespace: no spaces after `:` or `,`, no newlines.
 5. Hex strings are lowercase.
@@ -82,9 +101,15 @@ came to be missing from the authoritative one - see issue #2.
 
 What this document owns, and §7.1 relies on:
 
-- the canonical byte form the `mac` is computed over (above)
+- the canonical byte form the `mac` is computed over (above), **including which bytes the
+  receiver MACs** - rule 2
 - the bounds below
 - the golden vectors
+
+Note that rule 2 decides two things §7.1 states but does not derive: that a missing field
+is a step 2 rejection rather than a step 5 one, and that a receiver which cannot verify a
+datagram cannot trust any field inside it. A machine's own datagram is dropped at §7.1 step
+3 before either question arises; that is ingress, and §7.1 owns it.
 
 One consequence of canonicalization is worth stating where the canonicalizer lives. Because
 the `mac` covers the canonical form, **a receiver that cannot verify a datagram cannot
@@ -138,28 +163,71 @@ design already tolerates.
 
 ## Golden vectors
 
-> **Not yet populated.** These land with step 2 of
-> [`implementation-plan.md`](implementation-plan.md) §7, alongside the canonicalizer.
+The vectors are **[`wire-format.vectors.json`](wire-format.vectors.json)**, which is
+normative. They are not reproduced here: a byte-exact value hidden inside a fenced block in
+a prose document is not reviewable - a trailing space or a stray `\r` is invisible in the
+diff, which is precisely the silent failure this document opens by naming. A separate JSON
+artifact keeps one source of truth while making each vector diff on its own line.
 
-Each vector is a byte-exact canonical form with its expected MAC under a fixed test
-`pairKey`, stored as test data and asserted on every CI run. Any change to field order,
-formatting, or whitespace fails the test.
+The test suite loads that file, fails if it is missing, and asserts the vector count and
+names against the table below, so a vector cannot be quietly dropped. A suite that silently
+parsed zero vectors would be green while asserting nothing, in the one place whose entire
+job is to be hard to change by accident.
 
-That is the intent: changing a vector must be a deliberate, reviewable act that forces
-the question "does this need a `v` bump, and does it need both machines updated at once?"
-Per [`implementation-plan.md`](implementation-plan.md) §6.4, the answer to the second half
-is almost always yes.
+Each round-trip vector is a byte-exact canonical form with its expected MAC under a fixed
+test `pairKey`. That key is a published constant, written in the vectors file and used
+nowhere but the test assembly. It is not a secret and its publication is not the disclosure
+`AGENTS.md` §6 forbids - it authenticates nothing, because the `pairKey` that rule protects
+is the one generated by §7.7 and held only in `config.json` on the two real machines.
+
+Honest bound on what this proves: the vectors were generated by the canonicalizer they
+freeze, so they cannot catch an error that was present when they were written. What they
+catch is *change* - any later edit to field order, number formatting, whitespace, or
+endianness fails the test. The canonical forms are stored as readable UTF-8 strings rather
+than hex for exactly this reason: a wrong field order is visible on review.
+
+Changing a vector must therefore be a deliberate, reviewable act that forces the question
+"does this need a `v` bump, and does it need both machines updated at once?" Per
+[`implementation-plan.md`](implementation-plan.md) §6.4, the answer to the second half is
+almost always yes.
+
+### Round-trip vectors
+
+Canonical bytes and MAC, asserted in both directions - encode produces these bytes, and
+parsing these bytes yields these field values.
 
 | Vector | Covers |
 |---|---|
 | `v1-baseline` | Nominal datagram, `micLive: false`, `bye: false`, mid-range `seq` |
 | `v1-miclive-true` | Phase 2 shape, proving phase 1 and 2 are wire-compatible |
 | `v1-bye` | `bye: true`, the departure datagram |
-| `v1-bye-higher-seq` | `bye: true` with `seq` strictly above the receiver's, asserting `activeOwner` does **not** move |
+| `v1-bye-higher-seq` | `bye: true` with `seq` strictly above the receiver's, asserting `activeOwner` does **not** move. The behavioural half of that claim is the reducer's; this vector freezes the bytes it is asserted against |
 | `v1-seq-zero` | `seq: 0`, guarding leading-zero and empty-integer formatting |
-| `v1-seq-max` | `seq` at `uint64.Max`, the §5.4 bound case |
+| `v1-seq-max` | `seq` at `uint64.Max`. Guards 64-bit parse precision - a double-based parser silently returns `18446744073709551616`. Also the §5.4 bound case; see the ingress table |
 | `v1-owner-is-peer` | `activeOwner` naming the other roster entry |
-| `v1-owner-unknown` | `activeOwner` outside the roster -> both audible, `error` |
-| `v1-bad-mac` | One flipped bit in `mac` -> dropped at ingress step 2 |
-| `v1-missing-miclive` | Field absent -> version mismatch, **never** inferred as `false` |
-| `v1-missing-bye` | Field absent -> version mismatch, **never** inferred as `false` |
+| `v1-owner-unknown` | `activeOwner` outside the roster. Encodes and parses cleanly: "both audible, `error`" is a §5.5 **reducer** outcome, not an ingress rejection. Ingress step 3 tests `machineId`, never `activeOwner` |
+| `v1-owner-none` | `activeOwner` is `MachineId.None`, the pre-claim state of `design.md` §5. Freezes the reserved value's encoding |
+| `v1-date-padding` | Single-digit month and day, freezing rule 8's zero-padding |
+
+### Ingress-outcome vectors
+
+Input bytes plus the context they are evaluated against, and the expected first rejection
+reason. `design.md` §7.1 owns the ordering; these assert the attribution.
+
+| Vector | Covers | Outcome |
+|---|---|---|
+| `v1-foreign-pairid` | A well-formed datagram signed with another pairing's key | `ForeignPairId`, silent - step 1 |
+| `v1-bad-mac` | One flipped bit in `mac` | `BadMac`, silent - step 2 |
+| `v1-missing-miclive` | Field absent -> version mismatch, **never** inferred as `false`. Unverifiable under rule 2, so step 2 and not step 5 | `BadMac`, silent - step 2 |
+| `v1-missing-bye` | Field absent -> version mismatch, **never** inferred as `false` | `BadMac`, silent - step 2 |
+| `v1-unknown-key` | An extra field, the shape a v2 peer most likely takes. Must pass step 1 and die at step 2 so it feeds the unverifiable-peer producer; dying earlier would silently re-break issue #1 | `BadMac`, silent - step 2 |
+| `v1-self-origin` | Our own heartbeat, heard back off the broadcast. Passes steps 1 and 2 by construction | `SelfOrigin`, silent - step 3 |
+| `v1-not-in-roster` | Valid `mac`, `machineId` outside the roster, pairing window closed | `NotInRoster`, silent - step 3 |
+| `v1-pairing-enrollment` | The same datagram with an incomplete roster and the pairing window open (`design.md` §7.7, ADR 0011) | `PairingEnrollment` - step 3's exception |
+| `v1-seq-over-bound` | `seq` delta of 1001 above `localSeq` | `SeqOutOfBounds`, `error` - step 4 |
+| `v1-seq-at-bound` | `seq` delta of exactly 1000 | `Accepted` - the boundary's other side |
+| `v1-seq-below-local` | `seq` **below** `localSeq`, which §5.4 ignores silently. Guards the unsigned-subtraction wrap that would turn every reordered or replayed datagram into a sticky `error` | `Accepted`; §5.4 discards it |
+| `v1-unknown-version` | `v: 2` with every field present and a valid `mac` - the only shape that reaches step 5 | `UnknownVersion`, `error` - step 5 |
+| `v1-bye-bad-mac` | A `bye` with a corrupted `mac`. `bye` is exempt from §5.4, never from ingress | `BadMac`, silent - step 2 |
+| `v1-oversize` | Over the 512-byte bound | `Unreadable`, silent - before step 1 |
+| `v1-not-json` | Bytes that are not a JSON object | `Unreadable`, silent - before step 1 |

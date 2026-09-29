@@ -1,8 +1,34 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 5 - makes the version-mismatch signal reachable and gives §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 6 - defines `activeOwner` before the first claim and drops a machine's own datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 6 changes, 2026-09-28.** Two Critical gaps found by the three-critic review of
+> the phase 1 rows 1-2 implementation plan. Both had to be settled here rather than in code,
+> because both fix the domain of a field §8 freezes in phase 1.
+>
+> **`activeOwner` had no value before the first claim.** §5 typed it non-optional, §5.1 was
+> its only writer, and `wire-format.md` rule 9 forbids omitting a field - so the heartbeat
+> between "pairing completes" and "someone claims" had to carry a 128-bit value no document
+> named. §5 now reserves `MachineId.None`. The alternative - each machine writing `self` on a
+> fresh pair - makes §5.4's tiebreak fire at `seq = 0` and mutes one machine seconds after
+> pairing with nobody in a call, which is Goal 5 violated by a default nobody chose.
+>
+> **A machine's own datagram passed every ingress check.** Its `pairId` is ours, our own
+> `pairKey` signs it, and §5.3's roster contains *self* - so §7.1 step 3's "not in the roster"
+> test passed, and §7.1's presence rule says "a valid datagram", never "from the peer". A
+> machine therefore kept itself present forever: claim on the laptop, desktop mutes, laptop
+> loses power without a `bye`, and the desktop's own heartbeats hold `peerPresent` true while
+> §5.5 stays satisfied. **Muted, indefinitely, for a peer that no longer exists** - which
+> falsifies §5.5's own "No peer -> never muted" and is a Goal 1 violation reached by the most
+> ordinary event the product has. Step 3 now drops self-origin datagrams first.
+>
+> Also: §7.1 step 5 contradicted §7.1's own prose and §7.4's producer table, which is issue
+> #2's defect class inside the one list revision 5 made normative. Step 5 is now "unknown `v`
+> from an authenticated peer" alone. The missing-field arm is unreachable by construction once
+> `wire-format.md` rule 2 fixes the receiver's MAC strategy, so it is struck rather than left
+> standing as a producer nothing can raise - the defect §7.4 exists to prevent.
 
 > **Revision 5 changes, 2026-09-28.** Closes issues #1 and #2 from the 2026-09-28 review.
 >
@@ -126,6 +152,18 @@ A single replicated value:
 `activeOwner` is whichever machine is allowed to make sound. `seq` is a monotonic counter
 used to order updates.
 
+**Before the first claim, `activeOwner` is the reserved value `MachineId.None`** - 128 bits
+of zero, which enrollment never generates and which therefore names no machine. A freshly
+paired machine holds it until §5.1's writers fire for the first time, and broadcasts it
+explicitly like any other value, because `wire-format.md` rule 9 forbids omitting a field.
+
+§5.5's predicate is false on both machines while it holds, so both stay audible until
+somebody deliberately claims - which is Goal 1's direction and leaves §5.1 as the only thing
+that ever creates ownership. The alternative considered was each machine writing `self` on a
+fresh pair; that makes both sides disagree at `seq = 0`, fires §5.4's tiebreak, and mutes the
+machine with the lexicographically larger roster ID seconds after pairing, with nobody in a
+call. Ownership moving without a deliberate event is exactly what §5.2 exists to forbid.
+
 ### 5.1 The only two writers
 
 State changes on exactly two events, both **edge-triggered**, both local to a machine:
@@ -161,7 +199,13 @@ a function of current conditions.
 
 `activeOwner` is not a free-form hostname. At pairing time (§7.1) exactly two opaque
 128-bit machine IDs are enrolled and written to both machines' config. That pair is the
-**roster**, and it is the complete domain of `activeOwner`.
+**roster**, and together with the reserved `MachineId.None` of §5 it is the complete domain
+of `activeOwner`.
+
+`MachineId.None` is 128 bits of zero. It is never generated at enrollment, is never a valid
+roster entry, and any path that reads a roster ID must reject it - a roster containing
+`None` would satisfy §5.5's `activeOwner == peerRosterId` and mute a machine for a peer that
+does not exist. It is a value `activeOwner` may hold, not a machine that may be enrolled.
 
 This exists because revision 1 let `activeOwner` hold any string. Renaming a PC, replacing
 a machine, or retiring an old device that once held the `pairId` could leave `activeOwner`
@@ -279,8 +323,11 @@ model becomes unit-testable without sockets, audio devices, or a second machine.
   `48292`, configurable).
 - **Cadence:** every 2s, plus an immediate extra send on any state change so claims feel
   instant rather than up-to-2s-late.
-- **Presence:** peer considered present if a valid datagram arrived within the last 10s
-  (5 missed beats). Loss of presence unmutes; it does not alter `activeOwner`.
+- **Presence:** peer considered present if a datagram **from the peer** passed every check
+  in the ingress list below within the last 10s (5 missed beats). Naming the sender matters:
+  a machine hears its own broadcasts, and a presence rule phrased as "a valid datagram"
+  makes every machine permanently its own peer - see the self-origin paragraph below. Loss
+  of presence unmutes; it does not alter `activeOwner`.
 - **Pairing:** a one-time ceremony (§7.7) produces three artifacts written to both
   machines: a `pairId` GUID that scopes the broadcast namespace, a **`pairKey`** 256-bit
   secret used for authentication, and the two-entry **roster** of §5.3. `pairId` is
@@ -313,18 +360,43 @@ Payload (JSON, ~200 bytes):
 
   1. `pairId` mismatch -> drop, silent.
   2. Invalid `mac` -> drop, silent per datagram. See the unverifiable-peer producer below.
-  3. `machineId` not in the roster -> drop, silent. **Excepted during the §7.7 pairing
-     window**, where a machine whose roster holds one entry enrolls the sender instead.
-     Steps 1, 2, 4 and 5 are unchanged by that exception, so enrollment still requires a
-     valid `mac` and therefore possession of `pairKey`.
+  3. `machineId` is **our own** -> drop, silent. Evaluated before anything else in this
+     step, so a machine can never enroll itself. Then: `machineId` not in the roster ->
+     drop, silent. **Excepted during the §7.7 pairing window**, where a machine whose roster
+     holds one entry enrolls the sender instead. Steps 1, 2, 4 and 5 are unchanged by that
+     exception, so enrollment still requires a valid `mac` and therefore possession of
+     `pairKey`.
   4. `seq` delta exceeds the §5.4 bound -> drop, raise `error`.
-  5. Unknown `v`, or a missing or unparseable field -> drop, raise `error`.
+  5. Unknown `v` from an authenticated peer -> drop, raise `error`.
 
   Then: `bye: true` goes to the presence layer only; `bye: false` goes to §5.4.
 
   Steps 1-3 are silent because they are the expected result of ordinary foreign traffic on
-  the port, and an error icon that is always lit explains nothing. Steps 4 and 5 are loud
-  because they can only be corruption, an attack, or a peer this machine cannot work with.
+  the port - and, for the self-origin case, of ordinary *local* traffic - and an error icon
+  that is always lit explains nothing. Steps 4 and 5 are loud because they can only be
+  corruption, an attack, or a peer this machine cannot work with.
+
+- **Self-origin.** *(revision 6)* An IPv4 subnet broadcast is delivered to every local
+  socket bound to the port, including the sender's own, so a machine hears its own
+  heartbeat. Every check above passes for it: the `pairId` is ours, our own `pairKey` signs
+  it, and §5.3's roster contains *self*. Without step 3's first clause the machine counts
+  itself as its own peer, and because presence below is defined on "a valid datagram" the
+  effect is permanent: a machine whose peer has vanished without a `bye` keeps
+  `peerPresent` true from its own beats, leaves §5.5 satisfied, and **stays muted for a
+  peer that no longer exists**. The drop is silent and unconditional, and it precedes the
+  §7.7 exception so that a machine mid-pairing cannot enroll itself as its own peer.
+
+  This does not depend on loopback delivery being enabled. Replay is accepted outright
+  below, and a machine bridging two interfaces onto one subnet - the topology §9.2-1
+  contemplates - echoes its own broadcast back with no attacker involved.
+
+- **A missing field is not a step 5 case.** `wire-format.md` rule 2 makes the receiver
+  re-canonicalize the field values it parsed, so a datagram missing any signed field cannot
+  be reconstructed and therefore cannot be verified: it dies at step 2, counted, feeding the
+  unverifiable-peer producer below. Revisions 3 to 5 listed "a missing or unparseable field"
+  under step 5, which contradicted this section's own `micLive` paragraph and §7.4's
+  "from an **authenticated** peer". Step 5 is reachable only for a datagram whose `mac`
+  verifies and whose `v` this machine does not know.
 
 - **The unverifiable peer.** *(revision 5)* Step 5 cannot catch a wire-version mismatch,
   and no ordering of these checks can. The `mac` covers the canonical form, so a receiver
@@ -475,7 +547,14 @@ loop this option is prone to.
 | `muted` | §5.5 predicate true |
 | `alone` | no peer heartbeat within the presence window |
 | `quarantine` | §7.6 rejoin window, state not yet reconciled |
-| `error` | `activeOwner` outside the roster; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded; unknown `v` or a missing field from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile |
+| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile |
+
+`activeOwner == MachineId.None` is the ordinary pre-claim state of §5 and is **never** an
+`error` cause. It is outside the roster by construction, so without this carve-out a
+freshly paired pair would sit in sticky `error` from the moment the ceremony completed.
+Which of the states above displays it is an open item: `active` reads as "the peer is
+muted" and `alone` reads as "there is no peer", and neither is true when nobody has
+claimed yet. Settle it when the icons land.
 
 - `error` is sticky until acknowledged and its tooltip names the specific cause. Because
   ownership is sticky, the tray is the only visible explanation for why a machine is
@@ -656,10 +735,18 @@ have failed without any authentication at all.
 - stale lower-`seq` datagram does not move ownership
 - no peer -> never muted, whatever `activeOwner` says
 - `activeOwner` outside the roster -> **both** machines audible, `error` raised
+- `activeOwner == MachineId.None` -> **both** machines audible, and **no** `error`: this is
+  the ordinary pre-claim state of §5, not a corrupt one
+- `MachineId.None` is never accepted as a roster entry, from config, from a pairing bundle,
+  or from §7.7 enrollment
+- a machine's own datagram -> dropped silently at §7.1 step 3, and in particular **does not
+  establish presence**; a machine whose peer has vanished goes `alone` rather than staying
+  muted on the strength of its own heartbeats
 - `activeOwner` differing only by case -> treated as outside the roster, not as a match
 - `seq` delta beyond the bound -> dropped, `error` raised
-- `micLive` absent from a datagram -> version mismatch, not `false`
-- `bye` absent from a datagram -> version mismatch, not `false`
+- `micLive` absent from a datagram -> version mismatch, not `false`; rejected at §7.1 step 2
+  as unverifiable, never at step 5, because rule 2 leaves the receiver nothing to reconstruct
+- `bye` absent from a datagram -> version mismatch, not `false`; step 2 for the same reason
 - sustained `pairId`-matching, `mac`-failing traffic with **nothing valid accepted** in the
   presence window -> `error`, cause "peer unverifiable"
 - the same traffic **while valid datagrams are still arriving** -> no `error`; a public
