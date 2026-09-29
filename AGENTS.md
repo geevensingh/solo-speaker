@@ -165,8 +165,23 @@ The rules below are language-agnostic and apply now.
 
 ### Naming
 
-- Classes / types: `PascalCase`. Variables / functions: `camelCase`.
-  Constants: `UPPER_SNAKE`. File naming convention is set with the stack.
+- **C# naming follows the .NET norm, now that section 2 has settled the stack.** Types,
+  methods, properties, events, and **all constants and `static readonly` fields** are
+  `PascalCase`, at every accessibility. Parameters and locals are `camelCase`. Private
+  and internal *mutable instance* fields are `_camelCase`. Files are named for the type
+  they declare.
+
+  The `UPPER_SNAKE` constant rule this section carried before the stack was chosen is
+  **withdrawn**: it was language-agnostic placeholder text, it never matched the
+  `.editorconfig` that actually enforces naming, and `MAX_SEQ_DELTA` beside
+  `WireProtocol.Version` would have left the written convention and the enforced one
+  disagreeing in opposite directions.
+
+  The `_camelCase` rule is scoped to mutable instance state deliberately. It sits beside
+  `dotnet_style_readonly_field` in `.editorconfig` because that is what it is about, and
+  `_maxSeqDelta` for a compile-time constant reads as mutable state to every C# reader.
+  The three `.editorconfig` naming rules are ordered so the constant and `static readonly`
+  rules match first; reordering them silently re-captures constants.
 - **First-party environment variables use the `SOLO_SPEAKER_*` prefix.** The
   prefix is runner- and tool-agnostic on purpose, so the variable name does not
   couple to a current implementation choice and does not have to be renamed
