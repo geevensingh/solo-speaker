@@ -1,3 +1,5 @@
+using SoloSpeaker.Core.Identity;
+
 namespace SoloSpeaker.Core.Abstractions;
 
 /// <summary>
@@ -24,19 +26,27 @@ public interface IStateStore
     /// <see cref="IFileStore.WriteAtomic"/>, so a crash mid-write cannot produce a
     /// truncated latch.
     /// </summary>
-    void SaveState(ReadOnlySpan<byte> activeOwner, ulong seq);
+    void SaveState(MachineId activeOwner, ulong seq);
 
     /// <summary>
     /// Loads persisted state at startup so a reboot does not reset arbitration.
     /// </summary>
     /// <returns>
     /// <see langword="false"/> if state is absent or unreadable. An absent state file is
-    /// ordinary on first run; an unreadable one raises <see cref="TrayState.Error"/>.
+    /// ordinary on first run; an unreadable one raises <see cref="TrayState.Error"/>. A
+    /// stored <c>activeOwner</c> that fails the strict canonical parse counts as
+    /// unreadable and is rejected rather than coerced - §4 of <c>AGENTS.md</c> scopes
+    /// "reject rather than coerce" to persisted state read back from disk, and the
+    /// rejection leaves the machine audible.
     /// </returns>
-    bool TryLoadState(out byte[] activeOwner, out ulong seq);
+    /// <remarks>
+    /// On first run, before either §5.1 writer has fired, the caller starts from
+    /// <see cref="MachineId.None"/> per §5 rather than inventing an owner.
+    /// </remarks>
+    bool TryLoadState(out MachineId activeOwner, out ulong seq);
 
     /// <summary>
     /// The <c>pairId</c> recorded alongside the state, for the cross-file check of §7.5.
     /// </summary>
-    byte[]? StatePairId { get; }
+    PairId? StatePairId { get; }
 }
