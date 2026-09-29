@@ -315,7 +315,13 @@ public static class Reducer
 
         ErrorCause cause = EffectiveError(state, roster);
 
-        return new ReducerResult(state, effects, shouldMute, TrayFor(state, roster, cause, peerPresent, shouldMute), cause);
+        return new ReducerResult(
+            state,
+            effects,
+            shouldMute,
+            peerPresent,
+            TrayFor(state, roster, cause, peerPresent, shouldMute),
+            cause);
     }
 
     private static ErrorCause EffectiveError(ArbitrationState state, Roster roster)

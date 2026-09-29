@@ -78,4 +78,24 @@ public interface IConfigStore
     /// silently tolerated.
     /// </summary>
     bool MatchesState(PairId statePairId);
+
+    /// <summary>
+    /// Enrolls the peer, completing the roster during the §7.7 pairing window.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Declared here in row 4 and implemented at row 10. ADR 0011 completes A's roster from
+    /// B's ordinary first heartbeat, so ingress can return
+    /// <c>IngressResult.PairingEnrollment</c> - but there was no seam able to express the
+    /// resulting mutation, because <see cref="Roster"/> is get-only. Declaring the method
+    /// before row 5 writes JSON behind this interface is what keeps redrawing the seam a
+    /// refactor rather than a rewrite, which is review finding B-4's lesson.
+    /// </para>
+    /// <para>
+    /// Returns <see langword="false"/> if the roster is already complete or the candidate is
+    /// rejected by <see cref="Identity.Roster.TryCreate"/> - it is <c>MachineId.None</c>, or
+    /// it equals <see cref="Identity.Roster.Self"/>.
+    /// </para>
+    /// </remarks>
+    bool TryCompleteRoster(MachineId peerId);
 }

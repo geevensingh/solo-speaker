@@ -1,0 +1,132 @@
+using SoloSpeaker.Core.Abstractions;
+using SoloSpeaker.Core.PeerLink;
+using SoloSpeaker.Core.StateMachine;
+
+namespace SoloSpeaker.Core.Composition;
+
+/// <summary>
+/// The deterministic cycle: hold the arbitration state, dispatch one event into the reducer,
+/// drain its effects, and publish what the rest of the app reads.
+/// </summary>
+/// <remarks>
+/// <para>
+/// <b>Not thread-safe. All entry points are serialized by the caller.</b> In production
+/// events arrive from a socket callback, a cadence timer, a hotkey message pump and a device
+/// notification - different threads - while the two-node harness is single-threaded by
+/// design and could therefore never observe a torn state. The contract is stated rather than
+/// discovered: the host serializes, and work item 6's host is where that happens.
+/// </para>
+/// <para>
+/// <b>The loop never schedules itself.</b> A host posts <see cref="ArbitrationEvent.Tick"/>
+/// at <see cref="ArbitrationTunables.HeartbeatCadence"/>. Putting a timer here would give the
+/// cadence two homes - one in the tunables and one in whatever interval the host chose.
+/// </para>
+/// <para>
+/// It owns exactly bytes to event to reduce to effects, and the state it reduces. Actuation,
+/// ledger replay, hotkey registration, tray rendering and pairing are composed
+/// <em>alongside</em> it by the host, never <em>into</em> it - see <c>AGENTS.md</c> §3.
+/// </para>
+/// </remarks>
+public sealed class ArbitrationLoop : IProximitySource
+{
+    private readonly IClock _clock;
+    private readonly IConfigStore _config;
+    private readonly EffectExecutor _executor;
+    private readonly ArbitrationTunables _tunables;
+
+    /// <summary>Creates a loop over its two seams and an effect executor.</summary>
+    public ArbitrationLoop(
+        IClock clock,
+        IConfigStore config,
+        EffectExecutor executor,
+        ArbitrationState? initialState = null,
+        ArbitrationTunables? tunables = null)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(config);
+        ArgumentNullException.ThrowIfNull(executor);
+
+        _clock = clock;
+        _config = config;
+        _executor = executor;
+        _tunables = tunables ?? ArbitrationTunables.Default;
+
+        State = initialState ?? ArbitrationState.Fresh();
+        LastResult = Reducer.Reduce(Context(), State, new ArbitrationEvent.Tick(), clock.Elapsed);
+        State = LastResult.State;
+    }
+
+    /// <summary>The current arbitration state.</summary>
+    public ArbitrationState State { get; private set; }
+
+    /// <summary>The most recent reduction, including the derived values §5.5 and §7.4 define.</summary>
+    public ReducerResult LastResult { get; private set; }
+
+    /// <summary>
+    /// Whether the §7.7 pairing window is open. The host owns its lifetime; work item 10
+    /// drives it.
+    /// </summary>
+    public bool PairingWindowOpen { get; set; }
+
+    /// <inheritdoc/>
+    /// <remarks>
+    /// Design §8 makes this seam "a projection over reducer state, not a second authority" in
+    /// phase 1. It reads the value the reducer already computed rather than recomputing,
+    /// because presence cannot live wholly outside the reducer: §7.6's observation latch is
+    /// set by an accepted non-<c>bye</c> datagram and must survive a <c>bye</c> clearing
+    /// presence.
+    /// </remarks>
+    public bool PeerPresent => LastResult.PeerPresent;
+
+    /// <summary>Dispatches one event, drains its effects, and returns the reduction.</summary>
+    public ReducerResult Post(ArbitrationEvent arbitrationEvent)
+    {
+        ArgumentNullException.ThrowIfNull(arbitrationEvent);
+
+        ReducerResult result = Reducer.Reduce(Context(), State, arbitrationEvent, _clock.Elapsed);
+        State = result.State;
+        LastResult = result;
+
+        ErrorCause executionFault = _executor.Execute(result.Effects);
+
+        if (executionFault != ErrorCause.None)
+        {
+            // Re-entered as an ordinary event so the tray reports it through the one path
+            // §7.4 defines, rather than by a side channel.
+            result = Reducer.Reduce(
+                Context(), State, new ArbitrationEvent.ErrorRaised(executionFault), _clock.Elapsed);
+            State = result.State;
+            LastResult = result;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Runs one received datagram through ingress and, if it means anything, the reducer.
+    /// </summary>
+    /// <returns>
+    /// The ingress outcome, so the caller can count rejection reasons. The reduction, if any,
+    /// is in <see cref="LastResult"/>.
+    /// </returns>
+    public IngressResult Receive(ReadOnlySpan<byte> datagram)
+    {
+        if (!_config.TryGetPairKey(out byte[] pairKey))
+        {
+            Post(new ArbitrationEvent.ErrorRaised(ErrorCause.ConfigUnreadable));
+            return IngressResult.Unreadable;
+        }
+
+        IngressContext context = DatagramRouter.ContextFor(State, _config, PairingWindowOpen);
+        IngressOutcome outcome = IngressPipeline.Evaluate(datagram, context, pairKey);
+
+        if (DatagramRouter.Route(outcome) is { } arbitrationEvent)
+        {
+            Post(arbitrationEvent);
+        }
+
+        return outcome.Result;
+    }
+
+    private ArbitrationContext Context() => ArbitrationContext.ForEvent(_config.Roster, _tunables);
+}

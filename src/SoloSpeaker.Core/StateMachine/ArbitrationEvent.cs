@@ -179,6 +179,11 @@ public abstract record ArbitrationEffect
 /// <param name="State">The new state.</param>
 /// <param name="Effects">Ordered. §5.1 persists before it broadcasts.</param>
 /// <param name="ShouldMute">§5.5's predicate, evaluated in positive space.</param>
+/// <param name="PeerPresent">
+/// §7.1 presence at the moment of this reduction. Returned rather than recomputed by each
+/// consumer, so <c>IProximitySource</c> has one home and one snapshot - design §8 makes that
+/// seam "a projection over reducer state", and a projection needs something to project.
+/// </param>
 /// <param name="TrayState">§7.4's state - a total function of state, roster and time.</param>
 /// <param name="ErrorCause">
 /// The cause behind <see cref="Core.TrayState.Error"/>, for the tooltip §7.4 requires.
@@ -187,5 +192,6 @@ public readonly record struct ReducerResult(
     ArbitrationState State,
     ImmutableArray<ArbitrationEffect> Effects,
     bool ShouldMute,
+    bool PeerPresent,
     TrayState TrayState,
     ErrorCause ErrorCause);
