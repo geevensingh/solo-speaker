@@ -120,6 +120,22 @@ Constraints that come from the design and are not open questions:
   `IMuteActuator` fused `MuteActuator` and `Ledger`, which put a disk concern
   behind an audio interface and made every ledger failure mode untestable. See
   `docs/review-2026-09-28.md` finding B-4.
+- **Two folders in `SoloSpeaker.Core` are deliberately *not* components, and the
+  distinction is worth keeping straight.** `Identity/` holds the value types every
+  component speaks - `MachineId`, `PairId`, `Roster`. `Composition/` holds the
+  deterministic cycle that binds the components together: bytes to event, event to
+  reducer, reducer result to effects. It lives in `Core` rather than `App` because
+  `SoloSpeaker.Core.Tests` targets `net10.0` and cannot reference
+  `net10.0-windows`, so a cycle living in `App` would make
+  `docs/implementation-plan.md` section 4.1's claim about two-node convergence
+  false - which is finding B-4 with a different noun.
+- **The boundary rule that follows**: the platform-neutral composition cycle lives
+  in `Core/Composition/`; the **host** that drives it - the timer, the socket, the
+  filesystem paths, process lifetime, the single-instance guard - lives in
+  `SoloSpeaker.App`. Actuation, ledger replay, hotkey registration, tray rendering
+  and pairing are composed *alongside* the cycle in the host, never *into* it.
+  Without that sentence every later work item has a default answer, and the default
+  is "add it to the loop".
 - **`StateMachine` is a pure reducer** (`(currentState, event, now) ->
   (newState, effects)`) and **all I/O lives at the edges**. This is called out
   in the design as the main testability decision. Do not put a socket, an audio

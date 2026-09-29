@@ -1,6 +1,6 @@
 # SoloSpeaker - Implementation Plan
 
-**Status:** Revision 3 - written against `design.md` revision 5
+**Status:** Revision 4 - written against `design.md` revision 8
 **Covers:** phase 1 only, plus the standing test and deployment machinery that phases 2
 and 3 inherit
 **Companions:** [`manual-test-matrix.md`](manual-test-matrix.md) -
@@ -54,6 +54,10 @@ global.json                    SDK pin
 src/
   SoloSpeaker.Core/            net10.0 - pure. No Windows reference, by design.
     Abstractions/              The seams of §3
+    Identity/                  MachineId, PairId, Roster - value types, not a component
+    PeerLink/                  Ingress (§7.1), with Wire/ for the frozen byte form
+    StateMachine/              The pure reducer of §6
+    Composition/               The deterministic cycle that binds them. See §4.3
   SoloSpeaker.App/             net10.0-windows - tray host, interop, sockets, disk
     NativeMethods.txt          CsWin32 surface, annotated per design section
     app.manifest               asInvoker, PerMonitorV2
@@ -139,6 +143,14 @@ headset swap re-targets the endpoint; that `RegisterHotKey` conflicts are detect
 one of those lives in [`manual-test-matrix.md`](manual-test-matrix.md) and is signed off
 by hand, per release, on both machines.
 
+Two more belong on that list, and they are easy to miss because the two-node harness looks
+like it covers them. **Clock skew between the machines** is unrepresentable in a harness
+driven by one controlled clock - which is sound, because the reducer never compares clocks
+and `sentUtc` is not a drop condition, but it means the harness demonstrates nothing about
+skew. And **socket bind ordering**, which §7.6 makes the trigger for the quarantine window
+("it starts on first successful socket bind and send"), is raised directly as an event by
+the harness rather than observed. Both are real-network properties.
+
 ### 4.2 Unit tests - mapping `design.md` §10
 
 Each row is one or more `[Fact]`/`[Theory]` cases. The design's list is adopted whole; the
@@ -177,18 +189,50 @@ The design files claim ping-pong, convergence, stale-`seq`, and quarantine adopt
 leaving it there means those paths are exercised a handful of times by hand rather than on
 every commit.
 
-The harness instantiates two reducers, two `IStateStore` instances over temp
-directories, a shared `IClock` under test control, and a fake `IPeerTransport` that
-can drop, duplicate, reorder, and delay datagrams between them. That converts the
-following from manual rows into deterministic automated tests:
+The harness instantiates two reducers, two `IStateStore` fakes that round-trip through the
+same canonical rendering the real store will write, a shared `IClock` under test control,
+and a fake `IPeerTransport` that can drop, duplicate, reorder, and delay datagrams. Two
+properties of that transport are load-bearing rather than incidental:
 
-- claim ping-pong across an arbitrary number of alternations
-- simultaneous claims at equal `seq`, asserting both sides pick the *same* winner
-- one node asleep while the other advances, then rejoining - the lid-open case
-- simultaneous rejoin: both quarantined, both audible, converging on expiry
-- datagram loss up to and beyond the five-missed-beat presence window
-- replayed datagrams inside the presence window, which §7.1 accepts - asserting the
-  blast radius stays bounded rather than that the replay is prevented
+- **It is a broadcast medium, not a pipe.** Every send is delivered to *both* subscribers
+  **including the sender**, because that is what an IPv4 subnet broadcast does. A
+  point-to-point fake would make `IngressResult.SelfOrigin` unreachable inside the loop, and
+  the permanent-mute failure design §7.1's self-origin paragraph exists to prevent would be
+  structurally untestable in the harness built to find it.
+- **Delivery is queued, never inline.** `DatagramReceived` is a push event, so a synchronous
+  send would re-enter the reducer while the outer reduction is still on the stack.
+
+The store is a fake rather than a real file-backed one because row 5 is what builds the real
+store; row 5's done-criterion gains a restart scenario that runs this harness over it. The
+round-tripping requirement is what stops the substitution from deleting coverage.
+
+That converts the following from manual rows into deterministic automated tests:
+
+| § 4.3 scenario | Test |
+|---|---|
+| Claim ping-pong across an arbitrary number of alternations | `TwoNodeTests.Claim_ping_pong_converges_on_every_alternation` |
+| Simultaneous claims at equal `seq`, asserting both sides pick the *same* winner | `TwoNodeTests.Simultaneous_claims_converge_on_the_lexicographically_smaller_id` |
+| One node asleep while the other advances, then rejoining - the lid-open case | `TwoNodeTests.A_rejoining_node_defers_to_the_one_that_kept_running` |
+| Simultaneous rejoin: both quarantined, both audible, converging on expiry | `TwoNodeTests.Simultaneous_rejoin_leaves_both_audible_then_converges` |
+| Datagram loss up to and beyond the five-missed-beat presence window | `TwoNodeTests.Presence_survives_four_missed_beats_and_lapses_after_five` |
+| Replayed datagrams inside the presence window | `TwoNodeTests.A_replay_moves_no_ownership_and_persists_nothing` |
+
+The simultaneous-claim row needs care that the scenario text does not convey: if the harness
+delivers between the two nodes' steps, the second node adopts the first's claim, §5.4's
+tiebreak is never reached, and the two still agree - so the stated assertion passes while the
+code it exists to cover never runs. The test holds both datagrams in flight, releases them
+together, and asserts the winner's **identity** and the resulting `seq`, not merely that the
+two sides match.
+
+The replay row is the one whose expectation changed. Earlier revisions asked it to assert
+that "the blast radius stays bounded"; design revision 8 establishes that presence is **not**
+bounded when the peer left without a `bye` - see §9.2-8. The test asserts the four properties
+that do hold - a replay moves no ownership, advances no `seq`, persists nothing, and cannot
+re-establish presence after a `bye` - and the unbounded case is a manual-matrix row (F8),
+because only a real network produces it.
+
+What stays manual is everything downstream of the reducer: whether the machine actually
+goes quiet.
 
 What stays manual is everything downstream of the reducer: whether the machine actually
 goes quiet.

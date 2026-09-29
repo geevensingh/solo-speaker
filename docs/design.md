@@ -1,8 +1,29 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 7 - closes the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 8 - corrects §7.1's replay claim and records the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 8 changes, 2026-09-28.** One correction, found by the three-critic review of the
+> row 4 harness plan while deciding what "the blast radius stays bounded" should assert.
+>
+> **§7.1's replay claim was false in the direction that matters.** "The blast radius is your
+> own speaker, and §5.5's positive predicate bounds it" does not hold for a replayed *state*
+> datagram, because such a datagram carries `activeOwner = <the peer>` - the one value §5.5
+> is looking for. It therefore satisfies the predicate rather than being excluded by it, and
+> refreshes presence. If the peer has gone **without** a `bye`, a sustained replay keeps this
+> machine muted for a peer that no longer exists: Goal 1 inverted, by the same shape as
+> revision 6's self-origin defect and reached by a different route.
+>
+> It is recorded as §9.2-8 rather than fixed, because it cannot be fixed in band. A replay of
+> the peer's most recent datagram is byte-identical to a live heartbeat, `sentUtc` is
+> deliberately not a drop condition, and an anti-replay nonce would change a format §8 freezes
+> in phase 1 - which `wire-format.md` already considered and dropped. D-1 is the compensating
+> control, and a manual-matrix row covers what CI cannot reach.
+>
+> Revision 7 narrowed the neighbouring case - a replay after an accepted `bye` - and this
+> revision states plainly what that rule does and does not cover, so the next reader does not
+> have to re-derive the difference.
 
 > **Revision 7 changes, 2026-09-28.** Six gaps found by the three-critic review of the row 3
 > reducer plan. None is a new decision; each is a place this document said something it did
@@ -507,8 +528,30 @@ Payload (JSON, ~200 bytes):
 - **Clock skew:** `sentUtc` is informational and logged, but is **not** a drop condition.
   Revision 1 rejected datagrams more than 60s from local time, which bought nothing
   (ordering relies on `seq`) and could sever the pair entirely on clock drift.
-- **Replay** within the presence window remains possible and is accepted. The blast radius
-  is your own speaker, and §5.5's positive predicate bounds it.
+- **Replay** within the presence window remains possible and is accepted. *(revision 8)*
+  Earlier revisions claimed "the blast radius is your own speaker, and §5.5's positive
+  predicate bounds it." **The second half of that is false**, and it is worth stating
+  precisely what is and is not bounded, because the difference is a Goal 1 case.
+
+  What a replayed state datagram provably cannot do: move `activeOwner`, advance `seq`,
+  cause a persisted write, raise an `error`, or re-establish presence after a `bye` - the
+  last by the "new information" rule above.
+
+  What it can do: **hold presence**. A replayed datagram carries `activeOwner = <the peer>`,
+  which is precisely the value §5.5's predicate is looking for, so it satisfies the predicate
+  rather than being excluded by it. If the peer has gone **without** a `bye` - a hard kill, a
+  power loss, walking out of range - a sustained replay keeps this machine muted for a peer
+  that no longer exists.
+
+  This is accepted rather than fixed, and the reasoning is that it cannot be fixed in band. A
+  replay of the peer's *most recent* datagram is byte-identical to a live heartbeat, and
+  `sentUtc` is deliberately not a drop condition (above), so no receiver-side rule can
+  separate them. An anti-replay nonce would be a change to a format §8 freezes in phase 1,
+  and `wire-format.md` already records that anti-replay was considered and dropped.
+
+  The compensating control is §9.1's decision D-1: an external unmute of an endpoint we muted
+  is treated as a manual claim, so reaching for the volume flyout - the natural reflex when a
+  machine is unexpectedly silent - takes ownership and ends the mute. See §9.2-8.
 
 ### 7.2 MicWatcher - two signals, not one
 
@@ -835,6 +878,16 @@ in spirit if not in letter.
    are not considered.
 7. **N > 2 is unsupported.** The roster is fixed at two entries and the tiebreak assumes
    it. §3 lists this as a non-goal; it is now also a mechanism-level constraint.
+8. **A sustained replay can hold a machine muted after its peer has gone.** *(revision 8)*
+   Presence is refreshed by any accepted datagram, and a replayed one carries
+   `activeOwner = <the peer>`, which satisfies §5.5 rather than being excluded by it. If the
+   peer left **without** a `bye` - hard kill, power loss, out of range - a replay landing
+   inside each presence window keeps this machine silent indefinitely. §7.1 previously
+   asserted that §5.5's positive predicate bounded replay; it does not bound this case.
+   Not fixable in band: a replay of the peer's latest datagram is byte-identical to a live
+   beat, and `sentUtc` is deliberately not a drop condition. Mitigated by D-1 - an external
+   unmute is a manual claim - and covered by a manual-matrix row rather than by CI, because
+   only a real network can produce the condition.
 
 ## 10. Testing
 

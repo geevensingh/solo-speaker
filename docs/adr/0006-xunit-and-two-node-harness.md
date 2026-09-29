@@ -31,7 +31,13 @@ hostile-input tests run against real bytes without a socket.
   may read the system clock; a single real-clock call in the reducer makes these tests
   slow or flaky.
 - The manual matrix shrinks to what genuinely requires two machines and real hardware,
-  which makes it short enough to actually run every release.
+  which makes it short enough to actually run every release. Rows C3 and A7 keep only their
+  real-hardware halves as of work item 4, and F8's expectation was rewritten once the
+  harness forced the question of what "bounded" meant - see `design.md` §9.2-8.
+- The harness's transport is a **broadcast medium**, not a point-to-point pipe: every send
+  reaches both subscribers including the sender, because that is what an IPv4 subnet
+  broadcast does. A pipe would make `IngressResult.SelfOrigin` unreachable inside the loop
+  and leave the permanent-mute failure §7.1 exists to prevent structurally untestable.
 - The harness is code that must itself be correct. A fake transport that is too forgiving
   produces tests that pass for the wrong reason, so its misbehaviour modes are explicit
   and opt-in per test rather than implicit defaults.

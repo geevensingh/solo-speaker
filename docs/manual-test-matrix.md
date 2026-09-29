@@ -33,7 +33,7 @@ correct mute with a wrong icon is still a failure.
 | A4 | Hotkey on the machine that already owns | No-op. Nothing changes anywhere | | |
 | A5 | Press the hotkey on both machines within ~100 ms | Both converge to the *same* owner, by lexicographically smaller roster ID. Check both trays | | |
 | A6 | `L` owner. Close `L`. Wait 15 s | `D` unmutes within the 10 s presence window, tray `alone` | | |
-| A7 | Reopen `L`. Wait for quarantine to expire | `L` is still owner; `D` mutes again. Stored ownership survived absence | | |
+| A7 | Reopen `L`. Wait for quarantine to expire | `L` is still owner; `D` mutes again. Stored ownership survived absence. *The arbitration half is automated as of row 4; this row now confirms the real lid-open path - sleep, resume, network re-acquisition - which CI cannot reach* | | |
 | A8 | `L` owner, `D` muted. Exit `L` **gracefully** from the tray menu | `D` unmutes in **under a second**, not after 10 s. This is the `bye` datagram | | |
 | A9 | Repeat A8 but hard-kill `L` instead | `D` takes the full 10 s window. Confirm the log distinguishes this from A8 | | |
 | A10 | `L` owner. Shut Windows down on `L` normally | Same as A8 - `bye` is sent on `WM_ENDSESSION`, not only on tray exit | | |
@@ -58,7 +58,7 @@ someone "helpfully" making it a function of current conditions.
 |---|---|---|---|---|
 | C1 | `L` owner. Sleep `L`. Claim on `D`. Wake `L` | **`L` does not steal the mute back.** `D` stays owner; `L` adopts `D`'s state despite holding a higher `seq` | | |
 | C2 | Close `L`'s lid, wait 5 min, open it | No ownership movement. This is the row §7.6 exists for | | |
-| C3 | Reboot both simultaneously | Both quarantine, both audible, converge on expiry. Neither is left muted | | |
+| C3 | Reboot both simultaneously | Both quarantine, both audible, converge on expiry. Neither is left muted. *Automated as of row 4; keep this row only to confirm real socket bind ordering starts the window, which CI cannot reach* | | |
 | C4 | Sleep `L`. Wake it and immediately press the hotkey, inside the 12 s window | Claim wins immediately; quarantine exits. A machine booting into a meeting must not mute itself | | |
 | C5 | Disconnect and reconnect `L`'s Wi-Fi | Quarantine window restarts on the network-change notification | | |
 | C6 | `L` wakes and sees `D`'s heartbeats, then `D` shuts down gracefully mid-window | **`L` still adopts `D`'s state at expiry.** The observation latch is set and `D`'s parting `bye` must not clear it. This is the B-2 case, and it needs no attacker | | |
@@ -110,7 +110,7 @@ vectors to mutate.
 | F5 | Sustain F3 for a minute **while the real peer is running normally** | **No `error`.** `pairId` is public; a stranger must not be able to disable the tray | | |
 | F6 | Send a valid `mac` with a `machineId` outside the roster | Dropped | | |
 | F7 | Send a valid datagram with `seq = uint64.Max` | Dropped, `error` raised. **Persisted state on both machines is unchanged** | | |
-| F8 | Replay a captured valid datagram inside the presence window | Accepted per §7.1. Confirm the blast radius stays bounded | | |
+| F8 | Replay a captured valid state datagram inside the presence window, **after the peer has gone without a `bye`** (pull its power, then replay) | The machine stays muted for as long as replays keep landing. This is **expected** per §9.2-8 and is the one case §5.5's positive predicate does not bound - a replay carries `activeOwner = <the peer>`, which satisfies the predicate. Confirm the escape works: unmuting from the volume flyout is read as a manual claim (D-1) and ends it. CI covers what is bounded - no ownership move, no `seq` advance, no persisted write, no `error` - but cannot produce this condition | | |
 | F9 | Replay a captured `bye` datagram | Peer presence clears and the machine unmutes - the safe direction. **`activeOwner` must not move** | | |
 | F10 | Replay a captured `bye` whose `seq` is higher than the receiver's | Still no ownership change. A `bye` bypasses §5.4 in both directions of ordering | | |
 | F11 | Flood replayed `bye`s at ~1 Hz during a rejoin window | The quarantine observation latch holds; the rejoining machine adopts its peer's state at expiry rather than asserting stale ownership | | |
