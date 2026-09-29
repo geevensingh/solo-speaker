@@ -92,7 +92,7 @@ remaining boundaries are implied rather than stated. They are declared in
 |---|---|
 | `IClock` | Every interval is testable without sleeping - the 2 s cadence, 10 s presence window, 12 s quarantine, 5 s debounce, 250 ms self-change suppression |
 | `IPeerTransport` | Datagrams can be dropped, duplicated, reordered and delayed on demand; validation sits *above* this seam so hostile-input tests run on real bytes without a socket |
-| `IProximitySource` | Presence is never read from the transport directly, which is what would make the phase-3 decomposition expensive |
+| `IProximitySource` | Presence is never read from the transport directly, which is what would make the phase-3 decomposition expensive. In phase 1 it is a **projection over reducer state**, not a second authority - see `design.md` §8. Presence cannot live wholly outside the reducer, because §7.6's observation latch is set by an accepted non-`bye` datagram and must survive a `bye` clearing presence, so a split would give one fact two homes |
 | `IMuteActuator` | Actuation is testable without a real endpoint. **Actuation only** - the ledger is separate |
 | `ILedger` | §7.3's recovery record is a distinct component per §6, and its replay policy lives in Core where tests can reach it |
 | `IFileStore` | Persisted-file *policy* lives in Core over a thin I/O seam, rather than in App where no test could reference it |
@@ -153,6 +153,10 @@ final block is additional, and §4.6 explains why.
 | No peer -> never muted, whatever `activeOwner` says | `MutePredicateTests` |
 | `activeOwner` outside the roster -> both audible, `error` raised | `MutePredicateTests` |
 | `activeOwner` differing only by case -> outside the roster, not a match | `RosterTests` |
+| `activeOwner == MachineId.None` with a peer present -> `unclaimed` | `TrayStateTests` |
+| Every `TrayState` value has a producer, and the producers are mutually exclusive | `TrayStateTests` |
+| Three unverifiable datagrams with nothing valid accepted -> `error`; two do not | `UnverifiablePeerTests` |
+| A replayed state datagram after a `bye` does not re-establish presence | `PresenceTests` |
 | `seq` delta beyond the bound -> dropped, `error` raised | `IngressTests` |
 | `micLive` absent -> version mismatch, not `false` | `IngressTests` |
 | `selfMicLive` true -> never muted, even with peer present and owner | `MutePredicateTests` |
@@ -401,7 +405,7 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 |---|---|---|
 | 1 | `MachineId`, `Roster`, ordinal comparison | `RosterTests` green, including the case-only mismatch |
 | 2 | Wire format v1: canonicalization, HMAC, parse, ingress order, **`bye`** | Golden vectors + fuzzer green; `wire-format.md` filled in |
-| 3 | `StateMachine` reducer | All of §4.2 green |
+| 3 | `StateMachine` reducer | All of §4.2 green, **plus §4.4's unverifiable-peer producer**. §4.2 has no row for that producer and row 2 structurally could not implement it, so without this clause row 3 would land a §7.4 producer with no completion test - which is §7.4's original defect |
 | 4 | Two-node in-process harness | All of §4.3 green |
 | 5 | `StateStore` + `ConfigStore` over `IFileStore`, atomic write, cross-file `pairId` check, **DPAPI `ISecretProtector`** | §4.5's state rows green in Core; a config from another profile raises `error`, not a crash, tested in `App.Tests` |
 | 6 | `PeerLink` over real UDP, including `bye` on graceful exit and its three receipt rules | Two instances on one host, separate config roots and ports, exchange state; a `bye` clears presence without moving `activeOwner` |

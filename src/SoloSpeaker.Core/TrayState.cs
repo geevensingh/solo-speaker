@@ -13,6 +13,26 @@ public enum TrayState
     /// <summary>Raised when the §5.5 mute predicate is true.</summary>
     Muted,
 
+    /// <summary>
+    /// Raised when <c>activeOwner</c> is <c>MachineId.None</c> and a peer is present -
+    /// nobody has claimed yet, so both machines are audible.
+    /// </summary>
+    /// <remarks>
+    /// Added in design revision 7. Revision 6 reserved <c>MachineId.None</c> as the
+    /// pre-claim value and left §7.4's five-state table non-total: with that owner and a
+    /// peer present, every one of the five was false by its own definition. It gets a state
+    /// of its own rather than being folded into <see cref="Active"/> or <see cref="Alone"/>
+    /// because it is neither - <see cref="Active"/> means "I hold the latch, so the peer is
+    /// silent" and <see cref="Alone"/> means "there is no peer", and both are diagnostics
+    /// this enum exists to keep distinct.
+    /// <para>
+    /// In phase 1 this is not a transient. §8 ships phase 1 without mic detection, so the
+    /// only §5.1 writer is a manual claim and a freshly paired pair stays here until
+    /// somebody presses the hotkey.
+    /// </para>
+    /// </remarks>
+    Unclaimed,
+
     /// <summary>Raised when no peer heartbeat has arrived within the presence window.</summary>
     Alone,
 

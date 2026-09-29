@@ -1,8 +1,50 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 6 - defines `activeOwner` before the first claim and drops a machine's own datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 7 - closes the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 7 changes, 2026-09-28.** Six gaps found by the three-critic review of the row 3
+> reducer plan. None is a new decision; each is a place this document said something it did
+> not finish saying, and row 3 is the first code that cannot decline to answer.
+>
+> **§7.6 adopt-at-expiry had nothing to adopt from.** "The peer's `(activeOwner, seq)` is
+> adopted" required a value the window never recorded, and it cannot be recovered by applying
+> §5.4 as observations arrive - §10's own row is "adopt peer's owner **even when our `seq` is
+> higher**", which is exactly the case §5.4 says to ignore. The window now records the
+> observed pair, last-writer-wins.
+>
+> **§7.6 never said what a quarantined machine broadcasts.** It says the machine does not
+> broadcast its persisted ownership, while `wire-format.md` rule 9 forbids omitting a field -
+> so a datagram sent during the window had to carry something, and two of the three available
+> answers reintroduce the lid-open defect this section exists to prevent. Broadcasting
+> `activeOwner = None` at a persisted `seq` lets the running peer adopt it under §5.4, so
+> **opening a lid would erase ownership**. A quarantined machine now sends nothing.
+>
+> **§7.6 never said what a restart does to the observation latch.** A restart begins a new
+> window, so "nothing clears it for the remainder of the window" did not answer the question.
+> The latch now survives, because the alternative - a Wi-Fi blip during a legitimate rejoin
+> erasing a correct observation - reaches the lid-open defect through an ordinary network
+> transition.
+>
+> **§7.1's replay tolerance did not bound the case it claimed to.** "The blast radius is your
+> own speaker, and §5.5's positive predicate bounds it" is false for a replayed state
+> datagram: it carries `activeOwner = peer`, the one value that satisfies §5.5. A replay
+> therefore holds presence indefinitely and undoes a `bye`, leaving a machine **muted for a
+> peer that has gone**. Presence after a departure now requires new information, not an echo.
+> No attacker is needed - this section already concedes that a machine bridging two
+> interfaces onto one subnet echoes broadcasts back.
+>
+> **§7.1's "sustained" was never quantified**, and the reducer needs a number. It is three
+> unverifiable datagrams in a sliding ten-second window. A real version-mismatched peer beats
+> at exactly five per ten seconds, so a threshold of five would sit on the rate it must
+> detect.
+>
+> **§7.4's table was left non-total by revision 6.** With `activeOwner == None` and the peer
+> present, all five states were false by their own definitions. `unclaimed` is added, and
+> [ADR 0014](adr/0014-tray-icons-by-shape.md) grows a sixth silhouette. In phase 1 this is not
+> a transient: the only writer is a manual claim, so a freshly paired pair sits here until
+> somebody presses the hotkey.
 
 > **Revision 6 changes, 2026-09-28.** Two Critical gaps found by the three-critic review of
 > the phase 1 rows 1-2 implementation plan. Both had to be settled here rather than in code,
@@ -416,6 +458,15 @@ Payload (JSON, ~200 bytes):
   could pin the tray into a sticky `error` and destroy the only visible explanation for why
   a machine is silent. If the real peer is still being heard, nothing is wrong.
 
+  *(revision 7)* **Sustained** is three such datagrams within a sliding ten-second window -
+  the presence window, so the two clauses are measured over the same span. The threshold is
+  set below the peer's own beat rate rather than at it: a real version-mismatched peer
+  broadcasts every 2 s, which is exactly five per ten seconds, so a threshold of five would
+  sit on the rate it exists to detect and a single dropped packet would silence the signal.
+  Three leaves margin in both directions - comfortably above stray foreign traffic that
+  happens to share our `pairId`, comfortably below a genuine mismatched peer. The window
+  slides rather than tumbles; a tumbling counter misses four-then-four across a boundary.
+
 - **`micLive`** is always emitted explicitly, including in phase 1 where it is hardcoded
   `false`. An absent field must never be inferred as `false`. In practice a datagram
   missing it fails at step 2 rather than step 5, because the sender that omitted it signed
@@ -433,10 +484,20 @@ Payload (JSON, ~200 bytes):
   1. **bypasses §5.4 entirely.** Its `seq` and `activeOwner` are ignored. It can never move
      the latch, which is what keeps §5.2 true.
   2. **clears peer presence immediately** rather than waiting out the 10s window, and sets
-     a departed flag. Presence is re-established by the next accepted **non-`bye`**
-     datagram. Naming the re-acquisition rule matters: a `bye` is itself a valid datagram,
-     so a receiver that only refreshed a last-seen timestamp would *extend* presence rather
-     than clear it.
+     a departed flag. Presence is re-established only by the next accepted **non-`bye`**
+     datagram **carrying information we have not already seen** - a `(seq, activeOwner)`
+     pair differing from the last one accepted. Naming the re-acquisition rule matters: a
+     `bye` is itself a valid datagram, so a receiver that only refreshed a last-seen
+     timestamp would *extend* presence rather than clear it.
+
+     *(revision 7)* The "new information" clause is the second half of that rule, and it
+     exists because the replay tolerance below does **not** bound this case. A replayed
+     state datagram carries `activeOwner = peer`, which is precisely the value §5.5's
+     predicate is looking for, so an echo refreshes presence *and* undoes the departure -
+     leaving a machine muted for a peer that has gone. A departure is undone by news, not
+     by an echo. No attacker is required: the self-origin paragraph above already concedes
+     that a machine bridging two interfaces onto one subnet echoes broadcasts back, and the
+     same bridge echoes the *peer's* last datagram after the peer powers off.
   3. **does not clear the §7.6 quarantine observation latch.** See §7.6.
 
   Like `micLive`, it is always emitted explicitly and an absent field is a version
@@ -545,16 +606,32 @@ loop this option is prone to.
 |---|---|
 | `active` | `activeOwner == self` |
 | `muted` | §5.5 predicate true |
+| `unclaimed` | `activeOwner == MachineId.None` and a peer is present - nobody has claimed yet, so both machines are audible *(revision 7)* |
 | `alone` | no peer heartbeat within the presence window |
 | `quarantine` | §7.6 rejoin window, state not yet reconciled |
 | `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile |
 
 `activeOwner == MachineId.None` is the ordinary pre-claim state of §5 and is **never** an
-`error` cause. It is outside the roster by construction, so without this carve-out a
-freshly paired pair would sit in sticky `error` from the moment the ceremony completed.
-Which of the states above displays it is an open item: `active` reads as "the peer is
-muted" and `alone` reads as "there is no peer", and neither is true when nobody has
-claimed yet. Settle it when the icons land.
+`error` cause. *(revision 7)* It gets its own state rather than being folded into `active`
+or `alone`, because it is neither: `active` means "I hold the latch, so the peer is
+silent", and `alone` means "there is no peer". Both are load-bearing diagnostics -
+§7.4 exists because revision 1 shipped a tray that could not explain itself - and
+overloading either would spend one of them to save an icon.
+
+Note that in phase 1 this is **not** a transient. §8 ships phase 1 with mic detection not
+built, so the only §5.1 writer is a manual claim: a freshly paired pair sits in `unclaimed`
+indefinitely until somebody presses the hotkey. It is the first thing a user sees, on both
+machines, and the one state with a specific action attached.
+
+`error` precedence: where several causes hold at once, the tooltip names the **first raised**
+and keeps it until acknowledged. Causes divide into two kinds, and they are acknowledged
+differently. **Continuous** causes - `activeOwner` outside the roster, roster incomplete
+after the pairing window, a cross-file `pairId` mismatch - are re-derived on every
+evaluation and **cannot be acknowledged while they remain true**, because acknowledging one
+would clear the tray while the machine sits in exactly the condition the `error` exists to
+expose. **Edge** causes - hotkey registration failure, `seq` bound exceeded, unknown `v`,
+sustained unverifiable traffic, ledger replay failure, endpoint enumeration failure - latch
+until acknowledged.
 
 - `error` is sticky until acknowledged and its tooltip names the specific cause. Because
   ownership is sticky, the tray is the only visible explanation for why a machine is
@@ -597,15 +674,45 @@ move the mute away from the machine the user was actively using, violating Goal 
 On cold start **and on resume from sleep** - the same code path; treating these separately
 was a defect in the first attempt at this fix - the machine enters `quarantine`:
 
-- It does **not** broadcast its persisted ownership, and does not apply mute.
+- It does **not** broadcast at all. *(revision 7)* §7.6 previously said only that it does
+  not broadcast its *persisted ownership*, which left the send side undecided while
+  `wire-format.md` rule 9 forbids omitting a field - so a datagram sent during the window
+  had to carry some `(activeOwner, seq)`, and two of the three available answers reintroduce
+  the defect this section exists to prevent. Sending `activeOwner = None` at the persisted
+  `seq` lets a running peer adopt it under §5.4, so **opening a lid would erase ownership**;
+  sending the persisted pair lets the peer adopt the stale higher `seq` and mute, which is
+  the lid-open defect outright. Silence is the only answer that does neither. The peer sees
+  the presence window lapse and unmutes, which is Goal 1's direction.
+
+  Two consequences are accepted rather than hidden. The window "starts on first successful
+  socket bind and send" below, so the first send is the pairing-mode or post-window one.
+  And ADR 0011's roster completion, which rides on B's first ordinary heartbeat, is delayed
+  by up to the window on B's cold start - harmless against a ten-minute pairing window, but
+  it should be known rather than discovered.
+- It does not apply mute.
 - **Peer observation is a latch, not a live flag.** Any accepted non-`bye` datagram at any
   point in the window sets it, and nothing clears it for the remainder of the window - in
   particular a `bye` cannot. The latch, not the instantaneous presence state, is what is
   read at expiry.
-- If the latch is set, the peer's `(activeOwner, seq)` is adopted **regardless of `seq`
-  ordering**, and `seq` is advanced past it. The rationale is that a continuously-running
-  machine's state reflects the most recent real events, while a rejoining machine's is
-  stale by construction.
+- **The observed `(activeOwner, seq)` is recorded with the latch**, last-writer-wins.
+  *(revision 7)* Without it there is nothing to adopt at expiry, and the value cannot be
+  recovered by applying §5.4 as observations arrive: §10's row is "adopt peer's owner **even
+  when our `seq` is higher**", which is exactly the case §5.4 says to ignore. Last-writer
+  wins because a 12 s window at a 2 s beat admits six observations and the peer may
+  legitimately claim within them; the latest observation is the peer's current state, which
+  is the same reasoning the adopt rule itself rests on.
+- **A restart preserves the latch and the observed pair.** *(revision 7)* A restart begins a
+  new window, so "nothing clears it for the remainder of the window" did not settle this.
+  Both answers have a failure mode: a surviving latch lets a flapping network carry a stale
+  observation forward, while a cleared one means a Wi-Fi blip during a legitimate rejoin
+  erases a correct observation, the machine expires "with no peer", and asserts its stale
+  ownership - the lid-open defect reached through an ordinary network transition. Preserving
+  fails toward deferring to the continuously-running machine, which is this section's stated
+  rationale.
+- If the latch is set, the peer's recorded `(activeOwner, seq)` is adopted **regardless of
+  `seq` ordering**, and `seq` is advanced past it. The rationale is that a
+  continuously-running machine's state reflects the most recent real events, while a
+  rejoining machine's is stale by construction.
 - If the window expires with the latch unset, the machine resumes normally from persisted
   state.
 
@@ -679,6 +786,14 @@ seam is narrower than it looks: PeerLink fuses presence, state replication, and
 authentication, while an RSSI source supplies presence only. Phase 3 is therefore a
 decomposition of PeerLink, not a drop-in swap, and the interface buys the presence boundary
 only.
+
+*(revision 7)* In phase 1 that interface is a **projection over reducer state**, not a
+second authority. Presence cannot live wholly outside the reducer: §7.6's observation latch
+is set by an accepted non-`bye` datagram - an event only the reducer sees - and it must
+survive a `bye` clearing presence, so splitting presence across the seam would give one
+fact two homes and let them disagree. The seam still buys what it was for, because the
+phase-3 question "is the peer near enough to conflict with" is answered in one place and
+read through one interface.
 
 ## 9. Decisions recorded, and open risks
 
@@ -761,7 +876,20 @@ have failed without any authentication at all.
 - a `bye` failing any ingress check is dropped like any other datagram
 - `selfMicLive` true -> never muted, even when the peer is owner and present
 - quarantine: peer observed -> adopt peer's owner even when our `seq` is higher
+- quarantine: the observed `(activeOwner, seq)` is recorded last-writer-wins, so a peer that
+  claims mid-window is adopted at its latest state rather than its first
+- quarantine: a quarantined machine broadcasts **nothing**, so a rejoining machine carrying
+  a higher `seq` cannot move the running peer's latch
+- quarantine: a restart mid-window preserves the observation latch and the observed pair
 - quarantine: manual claim and mic edge both exit quarantine and write normally
+- a replayed state datagram after an accepted `bye` does **not** re-establish presence;
+  only a datagram carrying a `(seq, activeOwner)` pair we have not already accepted does
+- three unverifiable datagrams within a sliding presence window, with nothing valid
+  accepted, raise `error`; two do not
+- `activeOwner == MachineId.None` with a peer present -> `unclaimed`, not `active`, not
+  `alone`, and not `error`
+- every `TrayState` value has at least one producer, and the producers are mutually
+  exclusive so the tray state is a total function of `(state, roster, now)`
 - pairing mode enrolls an unknown `machineId` only while the roster is incomplete **and**
   the window is open, and only after the `mac` check passes (§7.7)
 - pairing mode expiring with an incomplete roster -> `error`, and that machine never mutes
