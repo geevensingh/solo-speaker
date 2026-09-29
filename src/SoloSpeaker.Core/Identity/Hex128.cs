@@ -50,7 +50,7 @@ internal static class Hex128
 
         for (int index = 0; index < CharCount; index++)
         {
-            int nibble = ParseNibble(text[index]);
+            int nibble = StrictHex.ParseNibble(text[index]);
             if (nibble < 0)
             {
                 return false;
@@ -120,11 +120,4 @@ internal static class Hex128
             destination[index] = (byte)characters[index];
         }
     }
-
-    private static int ParseNibble(char character) => character switch
-    {
-        >= '0' and <= '9' => character - '0',
-        >= 'a' and <= 'f' => character - 'a' + 10,
-        _ => -1,
-    };
 }

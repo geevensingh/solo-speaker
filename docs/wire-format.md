@@ -203,7 +203,7 @@ parsing these bytes yields these field values.
 | `v1-bye` | `bye: true`, the departure datagram |
 | `v1-bye-higher-seq` | `bye: true` with `seq` strictly above the receiver's, asserting `activeOwner` does **not** move. The behavioural half of that claim is the reducer's; this vector freezes the bytes it is asserted against |
 | `v1-seq-zero` | `seq: 0`, guarding leading-zero and empty-integer formatting |
-| `v1-seq-max` | `seq` at `uint64.Max`. Guards 64-bit parse precision - a double-based parser silently returns `18446744073709551616`. Also the §5.4 bound case; see the ingress table |
+| `v1-seq-max` | `seq` at `uint64.Max`. Guards 64-bit parse precision - a double-based parser silently returns `18446744073709551616`. The §5.4 bound case has its own ingress vector below |
 | `v1-owner-is-peer` | `activeOwner` naming the other roster entry |
 | `v1-owner-unknown` | `activeOwner` outside the roster. Encodes and parses cleanly: "both audible, `error`" is a §5.5 **reducer** outcome, not an ingress rejection. Ingress step 3 tests `machineId`, never `activeOwner` |
 | `v1-owner-none` | `activeOwner` is `MachineId.None`, the pre-claim state of `design.md` §5. Freezes the reserved value's encoding |
@@ -216,17 +216,22 @@ reason. `design.md` §7.1 owns the ordering; these assert the attribution.
 
 | Vector | Covers | Outcome |
 |---|---|---|
-| `v1-foreign-pairid` | A well-formed datagram signed with another pairing's key | `ForeignPairId`, silent - step 1 |
+| `v1-foreign-pairid` | A well-formed datagram signed with another pairing's key. Fails step 1 **and** step 2; must be attributed to step 1 | `ForeignPairId`, silent - step 1 |
 | `v1-bad-mac` | One flipped bit in `mac` | `BadMac`, silent - step 2 |
 | `v1-missing-miclive` | Field absent -> version mismatch, **never** inferred as `false`. Unverifiable under rule 2, so step 2 and not step 5 | `BadMac`, silent - step 2 |
 | `v1-missing-bye` | Field absent -> version mismatch, **never** inferred as `false` | `BadMac`, silent - step 2 |
 | `v1-unknown-key` | An extra field, the shape a v2 peer most likely takes. Must pass step 1 and die at step 2 so it feeds the unverifiable-peer producer; dying earlier would silently re-break issue #1 | `BadMac`, silent - step 2 |
-| `v1-self-origin` | Our own heartbeat, heard back off the broadcast. Passes steps 1 and 2 by construction | `SelfOrigin`, silent - step 3 |
-| `v1-not-in-roster` | Valid `mac`, `machineId` outside the roster, pairing window closed | `NotInRoster`, silent - step 3 |
-| `v1-pairing-enrollment` | The same datagram with an incomplete roster and the pairing window open (`design.md` §7.7, ADR 0011) | `PairingEnrollment` - step 3's exception |
-| `v1-seq-over-bound` | `seq` delta of 1001 above `localSeq` | `SeqOutOfBounds`, `error` - step 4 |
+| `v1-duplicate-key` | A repeated field. JSON permits it; canonicalization does not | `BadMac`, silent - step 2 |
+| `v1-trailing-bytes` | Rule 4 forbids insignificant whitespace, so a canonical document is consumed exactly | `BadMac`, silent - step 2 |
+| `v1-self-origin` | Our own heartbeat, heard back off the broadcast. Passes steps 1 and 2 by construction, and `machineId` is a roster entry | `SelfOrigin`, silent - step 3 |
+| `v1-not-in-roster` | Valid `mac`, `machineId` outside a complete roster | `NotInRoster`, silent - step 3 |
+| `v1-pairing-enrollment` | The same datagram with an incomplete roster and the pairing window open (§7.7, ADR 0011) | `PairingEnrollment` - step 3's exception |
+| `v1-pairing-window-closed` | The same datagram with an incomplete roster but an expired window. Both conditions are required | `NotInRoster`, silent - step 3 |
 | `v1-seq-at-bound` | `seq` delta of exactly 1000 | `Accepted` - the boundary's other side |
+| `v1-seq-over-bound` | `seq` delta of 1001 above `localSeq` | `SeqOutOfBounds`, `error` - step 4 |
+| `v1-seq-max-over-bound` | `seq` at `uint64.Max`, which unbounded would pin ownership forever and poison persisted state on **both** machines | `SeqOutOfBounds`, `error` - step 4 |
 | `v1-seq-below-local` | `seq` **below** `localSeq`, which §5.4 ignores silently. Guards the unsigned-subtraction wrap that would turn every reordered or replayed datagram into a sticky `error` | `Accepted`; §5.4 discards it |
+| `v1-seq-wrap-guard` | `localSeq` at `uint64.Max` against `seq: 0`. Must not be read as a delta of 1 | `Accepted` |
 | `v1-unknown-version` | `v: 2` with every field present and a valid `mac` - the only shape that reaches step 5 | `UnknownVersion`, `error` - step 5 |
 | `v1-bye-bad-mac` | A `bye` with a corrupted `mac`. `bye` is exempt from §5.4, never from ingress | `BadMac`, silent - step 2 |
 | `v1-oversize` | Over the 512-byte bound | `Unreadable`, silent - before step 1 |
