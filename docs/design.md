@@ -1,8 +1,38 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 8 - corrects §7.1's replay claim and records the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 9 - settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 9 changes, 2026-09-29.** Six amendments from the three-critic review of the row 5
+> persistence plan. §8 draws the phase boundary around persisted state, so these are the last
+> shape decisions phase 1 gets to make cheaply.
+>
+> **The pairing ceremony now writes `state.json` as well as `config.json`.** §10 demands
+> `error` when `state.json` is deleted and `config.json` survives, while §7.5 left an absent
+> state file indistinguishable from an ordinary first run - both cannot hold, and nothing on
+> disk told them apart. Writing state at pairing makes absence mean "someone deleted it", and
+> it closes the reverse case too: a stale `state.json` surviving an uninstall would otherwise
+> raise `error` on the first start **after a successful pairing ceremony**.
+>
+> **`seq` is bounded on disk as well as on the wire.** §5.4 bounds it in the datagram because
+> one hostile value "poisons the persisted state on **both** machines". Nothing bounded the
+> file, so a hand-edited or restored `state.json` walked straight past the check.
+>
+> **Configuration fields are now split by what they gate.** Identity-bearing fields are
+> strict-reject; tunables fall back to a documented default and raise a cause that names the
+> field. "Reject rather than coerce" is scoped to persisted state because coercion breaks
+> §5.5's invariant - a denylist string is not that, and refusing the whole document over a
+> typo in one takes the pair dark while telling the user to re-pair, which would not fix it.
+>
+> **Both files carry a `schema` integer**, where an unrecognised **higher** value is its own
+> named outcome rather than a parse failure. The consumers are real: Goal 8's hand-editor
+> needs to know which shape they are editing, and §12's installer upgrading over an existing
+> install needs to know whether the config it found is the shape it understands.
+>
+> Also: the debounce field is named `debounceSeconds`, because under §8 the persisted key
+> *is* the frozen artifact and a unit-bearing name is worth fixing before it freezes; and
+> §7.4 gains a cause for a `pairKey` the configuration store refuses.
 
 > **Revision 8 changes, 2026-09-28.** One correction, found by the three-critic review of the
 > row 4 harness plan while deciding what "the blast radius stays bounded" should assert.
@@ -652,7 +682,7 @@ loop this option is prone to.
 | `unclaimed` | `activeOwner == MachineId.None` and a peer is present - nobody has claimed yet, so both machines are audible *(revision 7)* |
 | `alone` | no peer heartbeat within the presence window |
 | `quarantine` | §7.6 rejoin window, state not yet reconciled |
-| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile |
+| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded, **on the wire or on disk**; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile; **a `pairKey` the configuration store refuses** (§7.5); **a persisted file whose `schema` this build does not recognise**; **a tunable field that failed validation and fell back to its default** |
 
 `activeOwner == MachineId.None` is the ordinary pre-claim state of §5 and is **never** an
 `error` cause. *(revision 7)* It gets its own state rather than being folded into `active`
@@ -669,12 +699,22 @@ machines, and the one state with a specific action attached.
 `error` precedence: where several causes hold at once, the tooltip names the **first raised**
 and keeps it until acknowledged. Causes divide into two kinds, and they are acknowledged
 differently. **Continuous** causes - `activeOwner` outside the roster, roster incomplete
-after the pairing window, a cross-file `pairId` mismatch - are re-derived on every
-evaluation and **cannot be acknowledged while they remain true**, because acknowledging one
-would clear the tray while the machine sits in exactly the condition the `error` exists to
-expose. **Edge** causes - hotkey registration failure, `seq` bound exceeded, unknown `v`,
-sustained unverifiable traffic, ledger replay failure, endpoint enumeration failure - latch
-until acknowledged.
+after the pairing window, a cross-file `pairId` mismatch, an unreadable `config.json` or
+`state.json`, a refused `pairKey`, an unrecognised `schema` - are true until the condition
+itself changes and **cannot be acknowledged while they remain true**, because acknowledging
+one would clear the tray while the machine sits in exactly the condition the `error` exists
+to expose. **Edge** causes - hotkey registration failure, `seq` bound exceeded, unknown `v`,
+sustained unverifiable traffic, ledger replay failure, endpoint enumeration failure, a
+failed state write, a tunable that fell back to its default - latch until acknowledged.
+
+*(revision 9)* Only one continuous cause - `activeOwner` outside the roster - is derivable
+by the state machine from its own state. The rest are asserted by the component that owns
+the condition, which means that component must also be able to **retract** them. Without a
+retraction path a continuous cause raised from outside could never be cleared at all, since
+acknowledgement is forbidden while it holds. An earlier implementation discarded every
+continuous cause it had not derived itself, which silently swallowed this section's
+cross-file mismatch and §7.7's incomplete roster - the exact silent tolerance §7.5 exists to
+forbid.
 
 - `error` is sticky until acknowledged and its tooltip names the specific cause. Because
   ownership is sticky, the tray is the only visible explanation for why a machine is
@@ -686,15 +726,67 @@ until acknowledged.
 
 ### 7.5 StateStore - persistence
 
-- `(activeOwner, seq)` written to `%LOCALAPPDATA%\SoloSpeaker\state.json` on every
-  change, written atomically (temp file + `File.Replace`).
-- Loaded at startup so a reboot doesn't reset arbitration.
-- `config.json` alongside it holds `pairId`, `pairKey`, the roster, port, hotkey, denylist,
-  and debounce.
+Both files live in the data root - `%LOCALAPPDATA%\SoloSpeaker` by default, overridable so
+that two instances can run on one host for testing (§12). Both carry a `schema` integer and
+the same `pairId`.
+
+**`state.json`** - `(activeOwner, seq)` written on every change, atomically (temp file plus
+`File.Replace`), and loaded at startup so a reboot does not reset arbitration.
+
+```json
+{ "schema": 1, "pairId": "b1f0...", "activeOwner": "2d81e4...", "seq": 41 }
+```
+
+**`config.json`** - the long-lived pairing artifacts and the tunables.
+
+```json
+{
+  "schema": 1,
+  "pairId": "b1f0...",
+  "pairKeyProtected": "<base64>",
+  "roster": ["7f3a9c...", "2d81e4..."],
+  "port": 48292,
+  "hotkey": "Ctrl+Alt+Shift+M",
+  "denylist": [],
+  "debounceSeconds": 5
+}
+```
+
+`pairKeyProtected` is DPAPI-protected per [ADR 0013](adr/0013-dpapi-protects-pairkey-only.md);
+every other field is plaintext, because this section's cross-file check and Goal 8's
+hand-recoverability both assume the file can be inspected.
+
 - **The roster lives in `config.json` while `activeOwner` lives in `state.json`**, and
   §5.5's invariant spans both. Restoring one from backup without the other breaks the
   invariant, so both files carry the same `pairId` and a mismatch raises `error` rather
   than being silently tolerated.
+- **The pairing ceremony writes both files.** *(revision 9)* §7.7's `--pair-init` and
+  `--pair-join` write `state.json` alongside `config.json`, with the new `pairId`,
+  `activeOwner = MachineId.None`, and `seq = 0`. Two cases depend on it. Without it an
+  absent `state.json` is indistinguishable from an ordinary first run, so §10's requirement
+  to raise `error` when it is deleted and `config.json` survives cannot be met. And a
+  `state.json` left behind by an uninstall that removed only `config.json` would carry the
+  *old* `pairId`, so the cross-file check would fire on the first start after a successful
+  pairing - an `error` on a correctly paired machine.
+- **`seq` is bounded on disk.** *(revision 9)* A persisted value at or near `uint64.Max` is
+  refused and raises `error`. §5.4 bounds `seq` in the datagram precisely because an
+  unbounded one "poisons the persisted state on both machines"; enforcing that on the wire
+  and not on the file leaves the same poisoning reachable through a hand-edit, a restore, or
+  a half-written file.
+- **Fields are validated according to what they gate.** *(revision 9)* `pairId`,
+  `pairKeyProtected` and `roster` are **identity-bearing**: they are parsed strictly and a
+  bad value refuses the whole document, because they are the right-hand side of §5.5's
+  predicate and coercing them is how the invariant breaks. `port`, `hotkey`, `denylist` and
+  `debounceSeconds` are **tunables**: a bad value falls back to the documented default and
+  raises an `error` naming the field. The distinction matters because Goal 8 invites hand
+  editing - refusing the whole document over a mistyped denylist entry would take the pair
+  dark and, under ADR 0013's wording, tell the user to re-pair, which would not fix it.
+- **`schema` distinguishes a newer file from a corrupt one.** *(revision 9)* A value this
+  build does not recognise is its own outcome - "configuration is newer than this build" -
+  and is **refused**, never migrated and never coerced. It is not an extension point; §8
+  freezes the shape, so an unknown *field* remains a defect. What the integer buys is that
+  Goal 8's hand-editor knows which shape they are looking at, and that §12's installer
+  upgrading over an existing install can tell "older shape" from "damaged file".
 
 ### 7.6 Failsafes and rejoin
 
@@ -786,7 +878,8 @@ One-time, and it produces every long-lived artifact, which is why §8 places it 
    short code or QR.
 2. Machine B generates its roster ID, and the two exchange roster IDs.
 3. Both write `config.json` containing `pairId`, `pairKey`, and the complete two-entry
-   roster.
+   roster - and `state.json` containing the same `pairId`, `activeOwner = MachineId.None`
+   and `seq = 0`, per §7.5.
 
 `pairKey` never crosses the network. Re-pairing is the supported path for replacing a
 machine; §9 records that a replaced machine's stale roster entry is otherwise the exact
@@ -956,11 +1049,16 @@ the two are distinguishable in the log.
 
 **Recovery** - hard-kill the process while muted, relaunch, confirm audio restored from the
 ledger; hard-kill while muted and run `--restore` instead; uninstall while muted; delete
-`state.json` but not `config.json` and confirm `error` rather than silent misbehaviour; a
-second instance launched while the first holds a mute exits without touching the ledger
-(§7.3); a `config.json` that cannot be decrypted on this profile raises `error` with a
-re-pair cause rather than crashing; **`--restore` failing leaves the binary and the ledger
-in place** rather than deleting them behind a mute it could not repair.
+`state.json` but not `config.json` and confirm `error` rather than silent misbehaviour -
+which is only distinguishable because §7.7's ceremony writes `state.json` too; a persisted
+`seq` at `uint64.Max` is refused rather than adopted; a tunable field with a bad value falls
+back to its default and names itself, while a bad `pairId`, `pairKeyProtected` or roster
+entry refuses the whole document; a persisted file whose `schema` this build does not
+recognise is refused rather than migrated; a second instance launched while the first holds
+a mute exits without touching the ledger (§7.3); a `config.json` that cannot be decrypted on
+this profile raises `error` with a re-pair cause rather than crashing; **`--restore` failing
+leaves the binary and the ledger in place** rather than deleting them behind a mute it could
+not repair.
 
 **Hostile** - spoofed datagram with wrong `pairId`; correct `pairId` but no valid `mac`
 (the case revision 1's HMAC could not actually have caught, since the key was derivable

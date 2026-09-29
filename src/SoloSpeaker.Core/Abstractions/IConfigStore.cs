@@ -56,6 +56,13 @@ public interface IConfigStore
     /// <c>ToString</c> by the same symmetry pressure, and a secret with a rendering is one
     /// careless log line or assertion-failure message away from re-committing revision 1's
     /// Critical defect in a new shape. The asymmetry is the safeguard.
+    /// <para>
+    /// The key is decrypted once and held by the implementation, not decrypted per call.
+    /// <c>ArbitrationLoop</c> needs it for every inbound datagram and every broadcast, so a
+    /// per-call DPAPI round trip would put a decrypt on the path of unauthenticated
+    /// broadcast traffic - and handing out a fresh array per datagram gives the caller no
+    /// way to zero what it was given.
+    /// </para>
     /// </remarks>
     /// <returns>
     /// <see langword="false"/> if the protected value cannot be decrypted on this profile,
@@ -63,6 +70,16 @@ public interface IConfigStore
     /// crashing or falling back.
     /// </returns>
     bool TryGetPairKey(out byte[] pairKey);
+
+    /// <summary>
+    /// The port §7.1 broadcasts on, and the §7.4 hotkey. Tunables, so a bad persisted value
+    /// falls back to the documented default and raises an <see cref="TrayState.Error"/>
+    /// naming the field rather than refusing the whole document - see §7.5.
+    /// </summary>
+    int Port { get; }
+
+    /// <inheritdoc cref="Port"/>
+    string Hotkey { get; }
 
     /// <summary>
     /// Whether the roster holds both entries. A machine with an incomplete roster can
@@ -84,12 +101,11 @@ public interface IConfigStore
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Declared here in row 4 and implemented at row 10. ADR 0011 completes A's roster from
-    /// B's ordinary first heartbeat, so ingress can return
-    /// <c>IngressResult.PairingEnrollment</c> - but there was no seam able to express the
-    /// resulting mutation, because <see cref="Roster"/> is get-only. Declaring the method
-    /// before row 5 writes JSON behind this interface is what keeps redrawing the seam a
-    /// refactor rather than a rewrite, which is review finding B-4's lesson.
+    /// Declared in row 4 so that row 5 would not write JSON behind an interface unable to
+    /// express the mutation, and **implemented by row 5's <c>ConfigStore</c>** - the write
+    /// path is the one D-B's field-preservation argument is about, and a type cannot ship a
+    /// member it does not implement. Row 10 owns *when* it is called; row 5 owns what it
+    /// writes.
     /// </para>
     /// <para>
     /// Returns <see langword="false"/> if the roster is already complete or the candidate is

@@ -1,8 +1,10 @@
 using SoloSpeaker.Core.Identity;
 using SoloSpeaker.Core.PeerLink;
 using SoloSpeaker.Core.StateMachine;
+using SoloSpeaker.Core.StateStore;
 using SoloSpeaker.Core.Tests.StateMachine;
 using SoloSpeaker.Core.Tests.TwoNode;
+using SoloSpeaker.Core.Tests.WireFormat;
 
 namespace SoloSpeaker.Core.Tests;
 
@@ -205,7 +207,7 @@ public sealed class TwoNodeTests
 
         MachineId owner = harness.NodeA.State.ActiveOwner;
         ulong seq = harness.NodeA.State.Seq;
-        int writes = harness.NodeA.StateStore.SaveCount;
+        int writes = harness.NodeA.Files.WriteCount;
 
         for (int replay = 0; replay < 25; replay++)
         {
@@ -214,7 +216,7 @@ public sealed class TwoNodeTests
 
             Assert.Equal(owner, harness.NodeA.State.ActiveOwner);
             Assert.Equal(seq, harness.NodeA.State.Seq);
-            Assert.Equal(writes, harness.NodeA.StateStore.SaveCount);
+            Assert.Equal(writes, harness.NodeA.Files.WriteCount);
             Assert.Equal(ErrorCause.None, harness.NodeA.Loop.LastResult.ErrorCause);
         }
     }
@@ -262,6 +264,69 @@ public sealed class TwoNodeTests
         Assert.Contains(IngressResult.Accepted, harness.NodeA.Received);
     }
 
+    /// <summary>
+    /// The restart scenario work item 4 booked onto work item 5: a node is torn down and
+    /// reconstructed from its own persisted state, through the real store rather than
+    /// through <c>ArbitrationState.FromPersisted</c>. The round trip is the coverage - the
+    /// owner has to survive serialisation, the strict parse, and §7.5's cross-file check.
+    /// </summary>
+    [Fact]
+    public void A_restarted_node_resumes_the_latch_it_persisted()
+    {
+        TwoNodeHarness harness = TwoNodeHarness.Create();
+        harness.Beat();
+
+        harness.NodeB.Claim();
+        harness.Deliver().Beat();
+
+        MachineId owner = harness.NodeA.State.ActiveOwner;
+        ulong seq = harness.NodeA.State.Seq;
+
+        Assert.Equal(harness.NodeB.Self, owner);
+        Assert.True(harness.NodeA.ShouldMute);
+
+        StartupOutcome outcome = harness.NodeA.Restart();
+
+        Assert.Equal(ErrorCause.None, outcome.Cause);
+        Assert.Equal(owner, harness.NodeA.State.ActiveOwner);
+        Assert.Equal(seq, harness.NodeA.State.Seq);
+
+        // §5.5 is false immediately after a restart whatever the owner says, because
+        // presence does not survive one - Goal 1's direction.
+        Assert.False(harness.NodeA.ShouldMute);
+        Assert.Equal(TrayState.Alone, harness.NodeA.Tray);
+
+        // ...and it comes back as soon as the peer is heard again.
+        harness.Beat(2);
+        Assert.True(harness.NodeA.ShouldMute);
+    }
+
+    /// <summary>
+    /// §7.5's cross-file check, exercised through the composition rather than against
+    /// <c>StartupDecision</c> alone: a state file from another pairing raises rather than
+    /// being silently tolerated.
+    /// </summary>
+    [Fact]
+    public void A_restarted_node_refuses_state_from_another_pairing()
+    {
+        TwoNodeHarness harness = TwoNodeHarness.Create();
+        harness.Beat();
+        harness.NodeB.Claim();
+        harness.Deliver().Beat();
+
+        string statePath = harness.NodeA.Files.TextAt(@"C:\A\state.json");
+        harness.NodeA.Files.Seed(
+            @"C:\A\state.json",
+            statePath.Replace(
+                WireVectorConstants.PairIdHex, "00112233445566778899aabbccddeeff", StringComparison.Ordinal));
+
+        StartupOutcome outcome = harness.NodeA.Restart();
+
+        Assert.Equal(ErrorCause.StatePairIdMismatch, outcome.Cause);
+        Assert.True(harness.NodeA.State.ActiveOwner.IsNone);
+        Assert.False(harness.NodeA.ShouldMute);
+    }
+
     /// <summary>Duplication is ordinary on a broadcast medium and must change nothing.</summary>
     [Fact]
     public void Duplicated_datagrams_change_nothing()
@@ -273,11 +338,11 @@ public sealed class TwoNodeTests
         harness.NodeB.Claim();
         harness.Deliver().Beat();
 
-        int writes = harness.NodeA.StateStore.SaveCount;
+        int writes = harness.NodeA.Files.WriteCount;
         harness.Beat(3);
 
         Assert.Equal(harness.NodeB.Self, harness.NodeA.State.ActiveOwner);
-        Assert.Equal(writes, harness.NodeA.StateStore.SaveCount);
+        Assert.Equal(writes, harness.NodeA.Files.WriteCount);
     }
 
     /// <summary>
@@ -290,7 +355,7 @@ public sealed class TwoNodeTests
         TwoNodeHarness harness = TwoNodeHarness.Create();
         harness.Beat();
 
-        harness.NodeA.StateStore.FailNextWrite = true;
+        harness.NodeA.Files.FailNextWrite = true;
         harness.NodeA.Claim();
 
         Assert.Equal(ErrorCause.StatePersistFailed, harness.NodeA.Loop.LastResult.ErrorCause);

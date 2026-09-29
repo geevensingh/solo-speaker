@@ -59,8 +59,33 @@ public enum ErrorCause
     /// <summary>§7.3: the render endpoint could not be enumerated. Edge. Raised at row 7.</summary>
     EndpointEnumerationFailed,
 
-    /// <summary>§7.5: <c>config.json</c> is unreadable on this profile. Edge. Raised at row 5.</summary>
+    /// <summary>§7.5: <c>config.json</c> is unreadable on this profile. Continuous. Raised at row 5.</summary>
     ConfigUnreadable,
+
+    /// <summary>
+    /// §7.5: <c>state.json</c> is present but refused - malformed, a bad <c>pairId</c>, or a
+    /// non-canonical <c>activeOwner</c>. Continuous. Raised at row 5.
+    /// </summary>
+    StateUnreadable,
+
+    /// <summary>
+    /// §7.5: a persisted file carries a <c>schema</c> this build does not recognise.
+    /// Continuous - refused, never migrated and never coerced. Raised at row 5.
+    /// </summary>
+    PersistedSchemaUnknown,
+
+    /// <summary>
+    /// §7.5: the configuration store refused the <c>pairKey</c> as structurally unsound -
+    /// the wrong length, or every byte identical. Continuous. Raised at row 5.
+    /// </summary>
+    PairKeyRefused,
+
+    /// <summary>
+    /// §7.5: a tunable field failed validation and fell back to its documented default.
+    /// Edge. The tooltip names the field, because the machine keeps working and the user
+    /// needs to know which value was ignored.
+    /// </summary>
+    TunableFellBackToDefault,
 
     /// <summary>
     /// §7.5: the atomic write of <c>state.json</c> failed with the process still alive - a
@@ -91,6 +116,10 @@ public static class ErrorCauseExtensions
         ErrorCause.ActiveOwnerOutsideRoster => true,
         ErrorCause.RosterIncompleteAfterPairing => true,
         ErrorCause.StatePairIdMismatch => true,
+        ErrorCause.ConfigUnreadable => true,
+        ErrorCause.StateUnreadable => true,
+        ErrorCause.PersistedSchemaUnknown => true,
+        ErrorCause.PairKeyRefused => true,
         _ => false,
     };
 }

@@ -1,5 +1,6 @@
 using SoloSpeaker.Core.Abstractions;
 using SoloSpeaker.Core.Identity;
+using SoloSpeaker.Core.StateStore;
 
 namespace SoloSpeaker.Core.Tests.Fakes;
 
@@ -97,6 +98,10 @@ internal sealed class FakeConfigStore : IConfigStore
     public PairId PairId { get; }
 
     public bool IsPaired => Roster.IsComplete;
+
+    public int Port { get; init; } = ConfigDefaults.Port;
+
+    public string Hotkey { get; init; } = ConfigDefaults.Hotkey;
 
     /// <summary>Set to simulate a config that cannot be decrypted on this profile.</summary>
     internal bool PairKeyUnavailable { get; set; }

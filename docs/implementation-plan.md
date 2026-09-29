@@ -57,8 +57,11 @@ src/
     Identity/                  MachineId, PairId, Roster - value types, not a component
     PeerLink/                  Ingress (§7.1), with Wire/ for the frozen byte form
     StateMachine/              The pure reducer of §6
+    StateStore/                §7.5's two persisted files, over IFileStore
+    Persistence/               JsonPersistence - the one convention all three files share
     Composition/               The deterministic cycle that binds them. See §4.3
   SoloSpeaker.App/             net10.0-windows - tray host, interop, sockets, disk
+    Hosting/                   Data root, startup ordering - the host's territory per AGENTS.md §3
     NativeMethods.txt          CsWin32 surface, annotated per design section
     app.manifest               asInvoker, PerMonitorV2
 tests/
@@ -150,6 +153,12 @@ and `sentUtc` is not a drop condition, but it means the harness demonstrates not
 skew. And **socket bind ordering**, which §7.6 makes the trigger for the quarantine window
 ("it starts on first successful socket bind and send"), is raised directly as an event by
 the harness rather than observed. Both are real-network properties.
+
+A third, from work item 5: **that a `config.json` protected under a different Windows user
+profile fails to decrypt**. A test process runs as one profile and cannot protect data as
+another, so `App.Tests` proves only that the mechanism fails closed - a wrong entropy and a
+corrupted ciphertext both return `false` rather than throwing, which is the same route DPAPI
+takes for a wrong profile. The profile case itself is manual row **E10**.
 
 ### 4.2 Unit tests - mapping `design.md` §10
 
@@ -276,6 +285,17 @@ path and the `state.json`-deleted case; these are added:
 - ledger written but process killed before `SetMute` -> next start is a clean no-op
 - `state.json` temp file present but replace never happened -> previous state intact
 - `config.json` and `state.json` carry different `pairId` -> `error`, not silent tolerance
+- `state.json` absent on a **configured** machine -> `error`, because §7.7's ceremony writes
+  it; absent with no `config.json` either -> an ordinary first run
+- a persisted `seq` beyond the §5.4 bound -> refused, not adopted
+- a persisted `schema` this build does not recognise -> refused, never migrated
+- an identity-bearing field (`pairId`, `pairKeyProtected`, `roster`) that fails the strict
+  parse -> the whole document refused
+- a tunable (`port`, `hotkey`, `denylist`, `debounceSeconds`) that fails validation -> the
+  documented default, plus an `error` naming the field
+- completing the roster rewrites `config.json` **without dropping** the tunables
+- a node torn down and rebuilt from its own persisted state through the real store resumes
+  the latch it wrote, and is audible until its peer is heard again
 
 ### 4.6 Tests the design's §10 does not include
 
@@ -451,7 +471,7 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 | 2 | Wire format v1: canonicalization, HMAC, parse, ingress order, **`bye`** | Golden vectors + fuzzer green; `wire-format.md` filled in |
 | 3 | `StateMachine` reducer | All of §4.2 green, **plus §4.4's unverifiable-peer producer**. §4.2 has no row for that producer and row 2 structurally could not implement it, so without this clause row 3 would land a §7.4 producer with no completion test - which is §7.4's original defect |
 | 4 | Two-node in-process harness | All of §4.3 green |
-| 5 | `StateStore` + `ConfigStore` over `IFileStore`, atomic write, cross-file `pairId` check, **DPAPI `ISecretProtector`** | §4.5's state rows green in Core; a config from another profile raises `error`, not a crash, tested in `App.Tests` |
+| 5 | `StateStore` + `ConfigStore` over `IFileStore`, atomic write, cross-file `pairId` check, **DPAPI `ISecretProtector`** | §4.5's state rows green in Core, including the restart scenario over the real store. `App.Tests` proves DPAPI **fails closed** - a wrong entropy and a corrupted ciphertext both return `false` rather than throwing. The cross-profile case itself is manual row E10: a test process cannot protect data as another Windows profile, and DPAPI surfaces both through the same failure route |
 | 6 | `PeerLink` over real UDP, including `bye` on graceful exit and its three receipt rules | Two instances on one host, separate config roots and ports, exchange state; a `bye` clears presence without moving `activeOwner` |
 | 7 | `MuteActuator` + `Ledger` over `IFileStore` + `--restore` + `IMMNotificationClient` | §4.5's ledger rows green in Core; headset swap re-targets by hand |
 | 8 | **Logging** (ADR 0015), with per-minute ingress-drop aggregation | Ownership changes name their source; a version mismatch is distinguishable from an absent peer |

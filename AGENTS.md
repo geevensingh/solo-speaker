@@ -128,7 +128,16 @@ Constraints that come from the design and are not open questions:
   `SoloSpeaker.Core.Tests` targets `net10.0` and cannot reference
   `net10.0-windows`, so a cycle living in `App` would make
   `docs/implementation-plan.md` section 4.1's claim about two-node convergence
-  false - which is finding B-4 with a different noun.
+  false - which is finding B-4 with a different noun. `Persistence/` is the third:
+  it holds only `JsonPersistence`, the serialization convention all three persisted
+  files share, and exists because `StateStore` and `Ledger` are separate components
+  that would otherwise each grow their own.
+- **A component folder carries the component's name; the types inside carry role
+  names.** There is no type called `PeerLink` - there are `IngressPipeline`,
+  `IngressContext`, `IngressResult`. Likewise `StateStore/` holds `JsonStateStore`
+  and `JsonConfigStore`, not a type named for the folder. C# has no separate
+  namespace and type namespaces, so a type sharing its namespace's name does not
+  compile where both are in scope; naming by role sidesteps that and reads better.
 - **The boundary rule that follows**: the platform-neutral composition cycle lives
   in `Core/Composition/`; the **host** that drives it - the timer, the socket, the
   filesystem paths, process lifetime, the single-instance guard - lives in

@@ -3,6 +3,7 @@ using SoloSpeaker.Core.Composition;
 using SoloSpeaker.Core.Identity;
 using SoloSpeaker.Core.PeerLink;
 using SoloSpeaker.Core.StateMachine;
+using SoloSpeaker.Core.StateStore;
 using SoloSpeaker.Core.Tests.Fakes;
 using SoloSpeaker.Core.Tests.StateMachine;
 using SoloSpeaker.Core.Tests.WireFormat;
@@ -96,33 +97,53 @@ internal sealed class TwoNodeHarness
             throw new InvalidOperationException("Test roster is invalid.");
         }
 
-        var config = new FakeConfigStore(
-            WireVectorConstants.PairId, roster!, WireVectorConstants.TestPairKey);
-        var stateStore = new FakeStateStore();
+        var files = new FakeFileStore();
+        var protector = new FakeSecretProtector();
+        string configPath = $@"C:\{name}\config.json";
+        string statePath = $@"C:\{name}\state.json";
+
+        // The ceremony writes both files - design revision 9 - so a restart has both sides
+        // of the cross-file check available, exactly as a paired machine would.
+        JsonConfigStore.Create(
+            files, configPath, protector, WireVectorConstants.PairId, WireVectorConstants.TestPairKey, roster!);
+
+        if (!JsonConfigStore.TryLoad(files, configPath, protector, out JsonConfigStore? config).IsUsable)
+        {
+            throw new InvalidOperationException("Test configuration did not load.");
+        }
+
+        var stateStore = new JsonStateStore(files, statePath, config!.PairId);
+        stateStore.SaveState(MachineId.None, 0);
+
         IPeerTransport transport = Subnet.ConnectEndpoint(name);
 
-        return new Node(name, _clock, config, stateStore, transport, Tunables);
+        return new Node(name, _clock, config, stateStore, files, transport, Tunables);
     }
 
     /// <summary>One machine: its cycle, its seams, and the identity it was built with.</summary>
     internal sealed class Node
     {
+        private readonly IClock _clock;
+        private readonly ArbitrationTunables _tunables;
+
         internal Node(
             string name,
             IClock clock,
-            FakeConfigStore config,
-            FakeStateStore stateStore,
+            JsonConfigStore config,
+            JsonStateStore stateStore,
+            FakeFileStore files,
             IPeerTransport transport,
             ArbitrationTunables tunables)
         {
             Name = name;
             Config = config;
             StateStore = stateStore;
+            Files = files;
             Transport = transport;
+            _clock = clock;
+            _tunables = tunables;
 
-            var executor = new EffectExecutor(clock, config, stateStore, transport);
-            Loop = new ArbitrationLoop(clock, config, executor, tunables: tunables);
-
+            Loop = BuildLoop(ArbitrationState.Fresh());
             transport.DatagramReceived += datagram => Received.Add(Loop.Receive(datagram.Span));
         }
 
@@ -138,11 +159,13 @@ internal sealed class TwoNodeHarness
 
         internal string Name { get; }
 
-        internal ArbitrationLoop Loop { get; }
+        internal ArbitrationLoop Loop { get; private set; }
 
-        internal FakeConfigStore Config { get; }
+        internal JsonConfigStore Config { get; }
 
-        internal FakeStateStore StateStore { get; }
+        internal JsonStateStore StateStore { get; }
+
+        internal FakeFileStore Files { get; }
 
         internal IPeerTransport Transport { get; }
 
@@ -158,10 +181,31 @@ internal sealed class TwoNodeHarness
 
         internal bool PeerPresent => Loop.PeerPresent;
 
+        /// <summary>
+        /// Tears the cycle down and rebuilds it from what the real store holds - the restart
+        /// scenario work item 4 booked onto work item 5.
+        /// </summary>
+        internal StartupOutcome Restart()
+        {
+            StateStore.TryLoadState(out MachineId activeOwner, out ulong seq);
+
+            StartupOutcome outcome = StartupDecision.Decide(
+                Config.PairId, StateStore.LastRead, StateStore.StatePairId, activeOwner, seq);
+
+            Loop = BuildLoop(outcome.State);
+            return outcome;
+        }
+
         internal void Claim() => Loop.Post(new ArbitrationEvent.ManualClaim(ClaimSource.Hotkey));
 
         internal void Tick() => Loop.Post(new ArbitrationEvent.Tick());
 
         internal void EnterQuarantine() => Loop.Post(new ArbitrationEvent.QuarantineEntered());
+
+        private ArbitrationLoop BuildLoop(ArbitrationState initial)
+        {
+            var executor = new EffectExecutor(_clock, Config, StateStore, Transport);
+            return new ArbitrationLoop(_clock, Config, executor, initial, _tunables);
+        }
     }
 }

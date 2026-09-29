@@ -38,4 +38,17 @@ public interface IFileStore
     /// state intact.
     /// </summary>
     bool PendingWriteExists(string path);
+
+    /// <summary>
+    /// Deletes an orphaned temp file from an interrupted <see cref="WriteAtomic"/>.
+    /// </summary>
+    /// <remarks>
+    /// The matched pair to <see cref="PendingWriteExists"/>. The temp file's name is this
+    /// implementation's private business, so a caller above the seam has no path to hand to
+    /// <see cref="Delete"/> without duplicating the naming convention on the wrong side of
+    /// the line. Making <see cref="WriteAtomic"/> self-healing would be tidier but removes
+    /// the observation point §4.5's "temp file present but replace never happened" row
+    /// asserts against.
+    /// </remarks>
+    void DiscardPendingWrite(string path);
 }
