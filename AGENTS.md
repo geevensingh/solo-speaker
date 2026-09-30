@@ -120,7 +120,7 @@ Constraints that come from the design and are not open questions:
   `IMuteActuator` fused `MuteActuator` and `Ledger`, which put a disk concern
   behind an audio interface and made every ledger failure mode untestable. See
   `docs/review-2026-09-28.md` finding B-4.
-- **Two folders in `SoloSpeaker.Core` are deliberately *not* components, and the
+- **Four folders in `SoloSpeaker.Core` are deliberately *not* components, and the
   distinction is worth keeping straight.** `Identity/` holds the value types every
   component speaks - `MachineId`, `PairId`, `Roster`. `Composition/` holds the
   deterministic cycle that binds the components together: bytes to event, event to
@@ -131,7 +131,10 @@ Constraints that come from the design and are not open questions:
   false - which is finding B-4 with a different noun. `Persistence/` is the third:
   it holds only `JsonPersistence`, the serialization convention all three persisted
   files share, and exists because `StateStore` and `Ledger` are separate components
-  that would otherwise each grow their own.
+  that would otherwise each grow their own. `Diagnostics/` is the fourth: design
+  section 6 names seven components, and logging is not one of them. It is a
+  cross-cutting record of what the others did, not a parallel component with its own
+  authority. The enumeration is load-bearing precisely because it is exhaustive.
 - **A component folder carries the component's name; the types inside carry role
   names.** There is no type called `PeerLink` - there are `IngressPipeline`,
   `IngressContext`, `IngressResult`. Likewise `StateStore/` holds `JsonStateStore`
@@ -161,9 +164,9 @@ Constraints that come from the design and are not open questions:
 - **The reducer lives in `SoloSpeaker.Core`; everything it talks to is an
   interface in `SoloSpeaker.Core/Abstractions/`.** `IClock`, `IPeerTransport`,
   `IProximitySource`, `IMuteActuator`, `IMicWatcher`, `IStateStore`,
-  `IConfigStore`, `ILedger`, `IFileStore`, `ISecretProtector`. A test that needs
-  a real socket or a real audio device to exercise arbitration logic means the
-  boundary leaked.
+  `IConfigStore`, `ILedger`, `IFileStore`, `ISecretProtector`, `ILogSink`. A test
+  that needs a real socket or a real audio device to exercise arbitration logic
+  means the boundary leaked.
 - **Persisted-file policy lives in Core, not App.** The JSON shapes of sections
   7.3 and 7.5, the write-before-mutate ordering, the cross-file `pairId` check,
   and ledger replay are all implemented in `SoloSpeaker.Core` over

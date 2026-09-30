@@ -54,4 +54,22 @@ public static class DataRoot
 
         return Path.Combine(root, fileName);
     }
+
+    /// <summary>
+    /// The log directory for one data root - ADR 0015's <c>logs\</c> folder.
+    /// </summary>
+    /// <remarks>
+    /// Under the data root rather than under a hardcoded <c>%LOCALAPPDATA%</c>, because the
+    /// root is overridable and work item 7's single-instance guard is scoped by it. Two
+    /// instances with different roots legitimately run at once - work item 6's two-instance
+    /// test does exactly that - and a fixed path would put the log outside the only guard
+    /// the product has, with both processes contending for one handle. ADR 0015's literal
+    /// path stays true for the default root.
+    /// </remarks>
+    public static string LogsFor(string root)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(root);
+
+        return Path.Combine(root, "logs");
+    }
 }

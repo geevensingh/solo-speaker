@@ -37,6 +37,44 @@ public readonly record struct ArbitrationContext
     }
 }
 
+/// <summary>
+/// Why the ownership latch moved, for ADR 0015's "ownership changes, <b>with their
+/// source</b>".
+/// </summary>
+/// <remarks>
+/// <para>
+/// Distinct from <see cref="ClaimSource"/>, which answers a different question: which of
+/// §7.4's three <em>input surfaces</em> the user touched. Three of the values here are not
+/// user actions at all, and folding them into an enum whose doc comment says "three input
+/// surfaces all map to the same claim event" would make that sentence false.
+/// </para>
+/// <para>
+/// It rides on <see cref="ArbitrationEffect.PersistState"/> rather than being inferred from
+/// the reduced event, because <c>Reducer.Write</c> is the single funnel every ownership
+/// change passes through. That makes attribution a compile error to omit - a future writer
+/// cannot reach the latch without naming itself. Inferring from the event instead leaves
+/// <c>Converge</c>'s adopt and tiebreak branches indistinguishable, since they are the same
+/// event, and those are exactly the cases manual rows A9 and G9 are about.
+/// </para>
+/// </remarks>
+public enum OwnershipSource
+{
+    /// <summary>§5.1's manual claim - hotkey, tray click, or an external unmute.</summary>
+    ManualClaim,
+
+    /// <summary>§5.1's first writer: the rising edge of microphone use. Phase 2.</summary>
+    MicEdge,
+
+    /// <summary>§5.4: the peer's <c>seq</c> was higher, so its owner was adopted.</summary>
+    PeerAdoption,
+
+    /// <summary>§5.4's deterministic tiebreak resolved an equal-<c>seq</c> collision.</summary>
+    TiebreakWin,
+
+    /// <summary>§7.6: the rejoin window expired and the observed pair was adopted.</summary>
+    QuarantineAdoption,
+}
+
 /// <summary>Where a §7.4 manual claim came from. All three are the same claim.</summary>
 /// <remarks>
 /// §7.4: "Three input surfaces all map to the same claim event." One event with a tag
@@ -44,8 +82,7 @@ public readonly record struct ArbitrationContext
 /// ownership changes name their source without the reducer growing three code paths.
 /// </remarks>
 public enum ClaimSource
-{
-    /// <summary>The global hotkey of §7.4.</summary>
+{    /// <summary>The global hotkey of §7.4.</summary>
     Hotkey,
 
     /// <summary>A tray left-click.</summary>
@@ -165,7 +202,13 @@ public abstract record ArbitrationEffect
     /// <b>before</b> <see cref="Broadcast"/>, and <see cref="ReducerResult.Effects"/>
     /// preserves that order.
     /// </summary>
-    public sealed record PersistState(MachineId ActiveOwner, ulong Seq) : ArbitrationEffect;
+    /// <param name="ActiveOwner">The machine that now owns audio.</param>
+    /// <param name="Seq">The latch value being recorded.</param>
+    /// <param name="Source">
+    /// Why the latch moved. Required, so an ownership change cannot reach the latch without
+    /// naming its writer - see <see cref="OwnershipSource"/>.
+    /// </param>
+    public sealed record PersistState(MachineId ActiveOwner, ulong Seq, OwnershipSource Source) : ArbitrationEffect;
 
     /// <summary>
     /// Send a state datagram. Carries its own payload rather than letting the host re-read

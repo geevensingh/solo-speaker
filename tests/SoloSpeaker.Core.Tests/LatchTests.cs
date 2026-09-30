@@ -118,7 +118,7 @@ public sealed class LatchTests
 
         Assert.Collection(
             harness.Effects,
-            effect => Assert.Equal(new ArbitrationEffect.PersistState(harness.Self, 1), effect),
+            effect => Assert.Equal(new ArbitrationEffect.PersistState(harness.Self, 1, OwnershipSource.ManualClaim), effect),
             effect => Assert.Equal(new ArbitrationEffect.Broadcast(harness.Self, 1, false), effect));
     }
 

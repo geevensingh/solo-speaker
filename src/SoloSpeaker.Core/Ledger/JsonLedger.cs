@@ -36,13 +36,22 @@ public sealed class JsonLedger : ILedger
     private readonly IFileStore _files;
     private readonly string _path;
     private readonly IClock _clock;
+    private readonly Action<string, string, string>? _record;
 
     private List<LedgerEntry> _entries = [];
     private bool _loaded;
     private bool _corrupt;
 
     /// <summary>Creates a ledger over one file.</summary>
-    public JsonLedger(IFileStore files, string path, IClock clock)
+    /// <param name="files">Raw file I/O.</param>
+    /// <param name="path">Where the ledger lives.</param>
+    /// <param name="clock">Supplies the recorded timestamp.</param>
+    /// <param name="record">
+    /// Optional observer for ADR 0015's "ledger writes, replays, and clears". A callback
+    /// rather than an <c>ILogSink</c> so that Core's recovery record does not depend on the
+    /// diagnostic that watches it, and so the 281 tests that construct this keep working.
+    /// </param>
+    public JsonLedger(IFileStore files, string path, IClock clock, Action<string, string, string>? record = null)
     {
         ArgumentNullException.ThrowIfNull(files);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -51,6 +60,7 @@ public sealed class JsonLedger : ILedger
         _files = files;
         _path = path;
         _clock = clock;
+        _record = record;
     }
 
     /// <summary>Endpoints this ledger currently records a mutation for.</summary>
@@ -96,6 +106,7 @@ public sealed class JsonLedger : ILedger
         });
 
         Save();
+        _record?.Invoke("intent", endpointId, $"priorMute={priorMute}");
     }
 
     /// <inheritdoc/>
@@ -108,6 +119,7 @@ public sealed class JsonLedger : ILedger
         if (_entries.RemoveAll(entry => Matches(entry, endpointId)) > 0)
         {
             Save();
+            _record?.Invoke("clear", endpointId, string.Empty);
         }
     }
 
@@ -123,6 +135,7 @@ public sealed class JsonLedger : ILedger
             // §4.5: error raised, app still starts, nothing is muted. The file is left alone
             // rather than deleted - it is the only record of what may still be muted, and a
             // human may yet read it.
+            _record?.Invoke("replay", string.Empty, "refused: unreadable");
             return new LedgerReplayResult(0, 0, 0, Failed: true);
         }
 
@@ -162,6 +175,11 @@ public sealed class JsonLedger : ILedger
 
         _entries = unrepaired;
         Save();
+
+        _record?.Invoke(
+            "replay",
+            string.Empty,
+            $"restored={restored} skipped={skipped} unrepaired={unrepaired.Count}");
 
         return new LedgerReplayResult(restored, skipped, unrepaired.Count, Failed: false);
     }

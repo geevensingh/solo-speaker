@@ -103,6 +103,7 @@ remaining boundaries are implied rather than stated. They are declared in
 | `IMuteActuator` | Actuation is testable without a real endpoint. **Actuation only** - the ledger is separate |
 | `ILedger` | §7.3's recovery record is a distinct component per §6, and its replay policy lives in Core where tests can reach it |
 | `IFileStore` | Persisted-file *policy* lives in Core over a thin I/O seam, rather than in App where no test could reference it |
+| `ILogSink` | Append-only rolling diagnostics need the opposite of `IFileStore`'s atomic write-and-replace; routing one log line through `IFileStore` would rewrite the whole file. The sink buffers and never writes from the reduce cycle, because that cycle runs on the same thread that handles `WM_ENDSESSION`, so a stalled disk write cannot delay the departure datagram, the endpoint restore, or the ledger clear |
 | `IConfigStore` | The roster has a seam at all. It is the right-hand side of §5.5's predicate and previously had none |
 | `ISecretProtector` | DPAPI is Windows-only; without this seam one call would drag the whole config store back into App |
 | `IMicWatcher` | Phase 1 supplies an always-`false` stub; phase 2 swaps in WASAPI with no change above the seam |
@@ -516,7 +517,7 @@ Critical defects. See [`review-2026-09-28.md`](review-2026-09-28.md).
 | §8.2 No single-instance guard | Named mutex `Local\SoloSpeaker`, acquired **before** ledger replay | [0012](adr/0012-single-instance-guard.md) | M-1, M-2 |
 | §8.3 `pairKey` in plaintext | DPAPI protects the `pairKey` field only; the rest of `config.json` stays readable | [0013](adr/0013-dpapi-protects-pairkey-only.md) | none - survived review intact |
 | §8.4 No tray icon assets | Five icons differentiated by silhouette, colour as reinforcement only | [0014](adr/0014-tray-icons-by-shape.md) | H-8, and no assets exist |
-| §8.5 No diagnostics | Rolling local log; **ingress drops aggregated per minute by reason** | [0015](adr/0015-local-rolling-log.md) | M-5 |
+| §8.5 No diagnostics | Rolling local log; **ingress drops aggregated per minute by reason** | [0015](adr/0015-local-rolling-log.md) | M-5 remains open - row 8 bounded its blast radius with the rolling tail, but work item 11 owns the fix: extending the per-minute rollup to presence and ownership transitions |
 | §8.6 Asymmetric unmute latency | `bye` field added to wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) | **B-1, B-2 were Critical; both fixed in `design.md` revision 4** |
 
 Issues #1 and #2 - the unreachable version-mismatch producer and the two competing ingress

@@ -1,3 +1,4 @@
+using SoloSpeaker.App.Logging;
 using SoloSpeaker.App.MuteActuator;
 using SoloSpeaker.Core.Abstractions;
 using SoloSpeaker.Core.Ledger;
@@ -59,8 +60,16 @@ public static class RestoreCommand
             return ExitInstanceRunning;
         }
 
+        // ADR 0015 wants ledger replays recorded, and a repair is exactly the thing worth
+        // having a record of afterwards. This path has no host and no cycle, so the sink is
+        // constructed here and disposed with the command - which also flushes it.
+        using var sink = new RollingFileLogSink(DataRoot.LogsFor(root), clock);
+        var diagnostics = new DiagnosticLog(sink, clock);
+
+        diagnostics.Note($"--restore, data root: {root}");
+
         string ledgerPath = DataRoot.PathFor(root, PersistedFiles.Ledger);
-        var ledger = new JsonLedger(files, ledgerPath, clock);
+        var ledger = new JsonLedger(files, ledgerPath, clock, diagnostics.LedgerActivity);
 
         using IMuteActuator actuator = actuatorFactory();
 
@@ -69,16 +78,28 @@ public static class RestoreCommand
         if (result.Failed)
         {
             report("The mutation ledger could not be read. Nothing was restored, and it has been left in place.");
+            diagnostics.Flush(force: true);
             return ExitNotRepaired;
         }
 
         if (result.Unrepaired > 0)
         {
             report($"{result.Unrepaired} endpoint(s) could not be restored. Their ledger entries have been kept.");
+            diagnostics.Flush(force: true);
             return ExitNotRepaired;
         }
 
         report($"Restored {result.Restored} endpoint(s); {result.Skipped} entr(ies) needed no action.");
+        diagnostics.Flush(force: true);
+
+        if (sink.HasStopped || sink.DroppedEntries > 0)
+        {
+            // The log is the only record of what a repair did. If it could not be written,
+            // say so on the channel that is working rather than leaving the operator to
+            // discover an empty file later.
+            report("Note: the diagnostic log could not be written, so this repair is unrecorded.");
+        }
+
         return 0;
     }
 }

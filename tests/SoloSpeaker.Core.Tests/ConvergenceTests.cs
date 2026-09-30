@@ -75,7 +75,7 @@ public sealed class ConvergenceTests
         Assert.Equal(2UL, harness.State.Seq);
         Assert.Collection(
             harness.Effects,
-            effect => Assert.Equal(new ArbitrationEffect.PersistState(harness.Peer, 2), effect),
+            effect => Assert.Equal(new ArbitrationEffect.PersistState(harness.Peer, 2, OwnershipSource.TiebreakWin), effect),
             effect => Assert.Equal(new ArbitrationEffect.Broadcast(harness.Peer, 2, false), effect));
     }
 

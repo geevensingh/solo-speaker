@@ -24,18 +24,20 @@ public sealed class HeartbeatPump : IDisposable
 {
     private readonly EventDispatch _dispatch;
     private readonly ArbitrationTunables _tunables;
+    private readonly Action? _onBeat;
 
     private System.Threading.Timer? _timer;
     private bool _disposed;
 
     /// <summary>Creates a pump over the dispatch, using the loop's own tunables.</summary>
-    public HeartbeatPump(EventDispatch dispatch, ArbitrationTunables tunables)
+    public HeartbeatPump(EventDispatch dispatch, ArbitrationTunables tunables, Action? onBeat = null)
     {
         ArgumentNullException.ThrowIfNull(dispatch);
         ArgumentNullException.ThrowIfNull(tunables);
 
         _dispatch = dispatch;
         _tunables = tunables;
+        _onBeat = onBeat;
     }
 
     /// <summary>Posts the priming tick and starts the cadence.</summary>
@@ -44,7 +46,15 @@ public sealed class HeartbeatPump : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
 
         _timer = new System.Threading.Timer(
-            _ => _dispatch.Post(new ArbitrationEvent.Tick()), null, TimeSpan.Zero, _tunables.HeartbeatCadence);
+            _ =>
+            {
+                _dispatch.Post(new ArbitrationEvent.Tick());
+
+                // ADR 0015's per-minute rollup is flushed on this cadence rather than on a
+                // timer of its own: a second timer would put the cadence in two places,
+                // which is the trap the loop's own remarks warn about.
+                _onBeat?.Invoke();
+            }, null, TimeSpan.Zero, _tunables.HeartbeatCadence);
     }
 
     /// <summary>

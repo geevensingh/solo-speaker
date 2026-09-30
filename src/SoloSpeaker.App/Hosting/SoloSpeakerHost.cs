@@ -1,3 +1,4 @@
+using SoloSpeaker.App.Logging;
 using SoloSpeaker.App.MuteActuator;
 using SoloSpeaker.App.PeerLink;
 using SoloSpeaker.Core.Abstractions;
@@ -44,6 +45,7 @@ public sealed class SoloSpeakerHost : IDisposable
     private readonly EndpointWatcher _endpointWatch;
     private readonly IMuteActuator _actuator;
     private readonly MuteReconciler _reconciler;
+    private readonly DiagnosticLog? _diagnostics;
 
     private bool _disposed;
 
@@ -65,6 +67,7 @@ public sealed class SoloSpeakerHost : IDisposable
         TransportEndpoint endpoint,
         ILedger ledger,
         IMuteActuator actuator,
+        DiagnosticLog? diagnostics = null,
         ArbitrationTunables? tunables = null)
     {
         ArgumentNullException.ThrowIfNull(window);
@@ -80,6 +83,7 @@ public sealed class SoloSpeakerHost : IDisposable
         _window = window;
         _transport = new UdpPeerTransport(endpoint);
         _actuator = actuator;
+        _diagnostics = diagnostics;
 
         _reconciler = new MuteReconciler(actuator, ledger, clock, resolved);
         var executor = new EffectExecutor(clock, config, stateStore, _transport, _reconciler);
@@ -89,7 +93,7 @@ public sealed class SoloSpeakerHost : IDisposable
 
         // One tunables instance for both, so the timer and the reducer's own due-check
         // cannot disagree about what the cadence is.
-        _pump = new HeartbeatPump(_dispatch, resolved);
+        _pump = new HeartbeatPump(_dispatch, resolved, () => _diagnostics?.Flush());
 
         // Constructed after the dispatch because its callback posts to it, and before the
         // shutdown sequence because that sequence must be able to stop it.
@@ -97,19 +101,20 @@ public sealed class SoloSpeakerHost : IDisposable
 
         var departure = new DepartureAnnouncer(_dispatch, executor);
         _shutdown = new ShutdownSequence(
-            _pump, departure, _dispatch, _endpointWatch.Dispose, ledger, actuator);
+            _pump, departure, _dispatch, _endpointWatch.Dispose, ledger, actuator, _diagnostics);
 
-        WireParticipants(executor, startupCause);
+        WireParticipants(loop, executor, startupCause);
     }
 
     /// <summary>The dispatch, for participants later work items add beside the cycle.</summary>
     public EventDispatch Dispatch => _dispatch;
 
-    /// <summary>Binds the socket and starts the cadence.</summary>
+    /// <summary>Posts the priming tick and starts the cadence.</summary>
     public void Start()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
+        _diagnostics?.Note("host started");
         _transport.Start();
         _pump.Start();
     }
@@ -128,8 +133,17 @@ public sealed class SoloSpeakerHost : IDisposable
         _transport.Dispose();
     }
 
-    private void WireParticipants(EffectExecutor executor, ErrorCause startupCause)
+    private void WireParticipants(ArbitrationLoop loop, EffectExecutor executor, ErrorCause startupCause)
     {
+        // One subscriber, wired here. Fan-out to the log now and to work item 9's tray later
+        // belongs to the host, which already owns construction order - a Core type with a
+        // subscriber list would be an event bus on the wrong side of AGENTS.md section 3.
+        if (_diagnostics is { } diagnostics)
+        {
+            loop.CyclePublished += diagnostics.Observe;
+            loop.IngressObserved += diagnostics.ObserveIngress;
+        }
+
         _transport.DatagramReceived += datagram => _dispatch.Receive(datagram);
 
         // §9.1's decision D-1: the user reached for the volume flyout, which is a claim.
@@ -177,7 +191,9 @@ public sealed class SoloSpeakerHost : IDisposable
     /// </remarks>
     private void OnDefaultRenderChanged() => _dispatch.PostWork(() =>
     {
-        if (_actuator.CurrentEndpointId is { } previous)
+        string? previousId = _actuator.CurrentEndpointId;
+
+        if (previousId is { } previous)
         {
             ReconcileOutcome released = _reconciler.Release(previous);
 
@@ -188,6 +204,10 @@ public sealed class SoloSpeakerHost : IDisposable
         }
 
         _actuator.Retarget();
+
+        // ADR 0015's "default-endpoint changes". Outside the reduce cycle, so it is recorded
+        // by the participant that owns it rather than by the cycle publication.
+        _diagnostics?.EndpointChanged(previousId, _actuator.CurrentEndpointId);
 
         // Drives the reconcile that mutes the new endpoint if §5.5 still wants it muted.
         _dispatch.Post(new ArbitrationEvent.Tick());

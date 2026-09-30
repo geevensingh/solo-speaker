@@ -1,5 +1,6 @@
 using System.Windows.Forms;
 using SoloSpeaker.App.Hosting;
+using SoloSpeaker.App.Logging;
 using SoloSpeaker.App.MuteActuator;
 using SoloSpeaker.App.PeerLink;
 using SoloSpeaker.Core.Abstractions;
@@ -119,7 +120,14 @@ internal static class Program
         }
 
         using IMuteActuator actuator = new WasapiMuteActuator();
-        var ledger = new JsonLedger(files, DataRoot.PathFor(root, PersistedFiles.Ledger), clock);
+        using var sink = new RollingFileLogSink(DataRoot.LogsFor(root), clock);
+        var diagnostics = new DiagnosticLog(sink, clock);
+
+        var ledger = new JsonLedger(
+            files,
+            DataRoot.PathFor(root, PersistedFiles.Ledger),
+            clock,
+            diagnostics.LedgerActivity);
 
         var startup = new StartupSequence(files, new DpapiSecretProtector(), clock, root, ledger, actuator);
         StartupResult result = startup.Run(guard);
@@ -128,6 +136,9 @@ internal static class Program
         {
             // §7.7: an unpaired machine has no roster, so there is nothing to arbitrate and
             // no loop to build. Work item 10 replaces this with the pairing ceremony.
+            diagnostics.Note("not paired; no loop built");
+            diagnostics.Flush(force: true);
+
             MessageBox.Show(
                 "SoloSpeaker is not paired yet.\n\n" +
                 "Pairing arrives in work item 10. See docs/implementation-plan.md.",
@@ -152,7 +163,8 @@ internal static class Program
             result.Cause,
             TransportEndpoint.Exclusive(config.Port),
             ledger,
-            actuator);
+            actuator,
+            diagnostics);
 
         host.Start();
 

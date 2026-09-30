@@ -38,6 +38,7 @@ public sealed class ShutdownSequence
     private readonly Action _stopEndpointWatch;
     private readonly ILedger _ledger;
     private readonly IMuteActuator _actuator;
+    private readonly Logging.DiagnosticLog? _diagnostics;
 
     private bool _ran;
 
@@ -48,7 +49,8 @@ public sealed class ShutdownSequence
         EventDispatch dispatch,
         Action stopEndpointWatch,
         ILedger ledger,
-        IMuteActuator actuator)
+        IMuteActuator actuator,
+        Logging.DiagnosticLog? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(pump);
         ArgumentNullException.ThrowIfNull(departure);
@@ -63,6 +65,7 @@ public sealed class ShutdownSequence
         _stopEndpointWatch = stopEndpointWatch;
         _ledger = ledger;
         _actuator = actuator;
+        _diagnostics = diagnostics;
     }
 
     /// <summary>Runs the steps in order. Idempotent.</summary>
@@ -87,6 +90,7 @@ public sealed class ShutdownSequence
         StopEndpointWatch();
         RestoreEndpoints();
         ReleaseSingleInstance();
+        FlushDiagnostics();
     }
 
     /// <summary>
@@ -131,5 +135,20 @@ public sealed class ShutdownSequence
     /// </summary>
     private static void ReleaseSingleInstance()
     {
+    }
+
+    /// <summary>
+    /// Writes whatever the log still holds. Last, because every step above emits.
+    /// </summary>
+    /// <remarks>
+    /// Forced, so the partial minute is not lost - the most interesting minute of a log is
+    /// usually the last one before something stopped. The flush also discloses any entries
+    /// lost to write failures even if the sink has given up, so a graceful exit always says
+    /// the log has a hole in it rather than leaving a permanent failure permanently silent.
+    /// </remarks>
+    private void FlushDiagnostics()
+    {
+        _diagnostics?.Note("host stopped");
+        _diagnostics?.Flush(force: true);
     }
 }

@@ -91,6 +91,24 @@ public sealed class ArbitrationLoop : IProximitySource
     {
         ArgumentNullException.ThrowIfNull(arbitrationEvent);
 
+        ArbitrationState previous = State;
+        ReducerResult result = Reduce(arbitrationEvent);
+
+        Publish(arbitrationEvent, result, previous, ingress: null);
+
+        return result;
+    }
+
+    /// <summary>
+    /// The reduction itself, without publication.
+    /// </summary>
+    /// <remarks>
+    /// Split from <see cref="Post"/> so that <see cref="Receive"/> can publish <b>once</b>,
+    /// carrying the ingress verdict that produced the event. Publishing from both would give
+    /// a datagram-driven cycle two observations, one of them missing the verdict.
+    /// </remarks>
+    private ReducerResult Reduce(ArbitrationEvent arbitrationEvent)
+    {
         ReducerResult result = Reducer.Reduce(Context(), State, arbitrationEvent, _clock.Elapsed);
         State = result.State;
         LastResult = result;
@@ -122,6 +140,40 @@ public sealed class ArbitrationLoop : IProximitySource
     }
 
     /// <summary>
+    /// Raised once per cycle, after everything that cycle is going to do.
+    /// </summary>
+    /// <remarks>
+    /// The fourth step of the contract this type's remarks describe: publish what the rest of
+    /// the app reads. One subscriber is wired by the host, which fans out to work item 8's
+    /// log and work item 9's tray - keeping the subscriber list on the host's side of
+    /// <c>AGENTS.md</c> §3's boundary rather than turning this into an event bus.
+    /// </remarks>
+    public event Action<CycleObservation>? CyclePublished;
+
+    private void Publish(
+        ArbitrationEvent arbitrationEvent,
+        ReducerResult result,
+        ArbitrationState previous,
+        IngressResult? ingress)
+    {
+        if (CyclePublished is not { } subscribers)
+        {
+            return;
+        }
+
+        // A subscriber is a diagnostic. It must not be able to fault the cycle that fed it,
+        // and the sink contract already says writes never throw - this is the belt to that
+        // brace, because an exception here would surface as a failed reduction.
+        try
+        {
+            subscribers(new CycleObservation(arbitrationEvent, result, previous, ingress));
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException and not StackOverflowException)
+        {
+        }
+    }
+
+    /// <summary>
     /// Runs one received datagram through ingress and, if it means anything, the reducer.
     /// </summary>
     /// <returns>
@@ -141,10 +193,35 @@ public sealed class ArbitrationLoop : IProximitySource
 
         if (DatagramRouter.Route(outcome) is { } arbitrationEvent)
         {
-            Post(arbitrationEvent);
+            ArbitrationState previous = State;
+            ReducerResult result = Reduce(arbitrationEvent);
+            Publish(arbitrationEvent, result, previous, outcome.Result);
+        }
+        else
+        {
+            // A datagram that reduces to nothing is still evidence. Rejections are what the
+            // per-minute rollup counts, and a dropped datagram that nobody observes is the
+            // whole failure ADR 0015 exists to prevent.
+            ObserveIngressOnly(outcome.Result);
         }
 
         return outcome.Result;
+    }
+
+    /// <summary>
+    /// Raised for an ingress verdict that produced no reduction, so drops are still counted.
+    /// </summary>
+    public event Action<IngressResult>? IngressObserved;
+
+    private void ObserveIngressOnly(IngressResult result)
+    {
+        try
+        {
+            IngressObserved?.Invoke(result);
+        }
+        catch (Exception failure) when (failure is not OutOfMemoryException and not StackOverflowException)
+        {
+        }
     }
 
     private ArbitrationContext Context() => ArbitrationContext.ForEvent(_config.Roster, _tunables);

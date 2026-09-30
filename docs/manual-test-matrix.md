@@ -35,7 +35,7 @@ correct mute with a wrong icon is still a failure.
 | A6 | `L` owner. Close `L`. Wait 15 s | `D` unmutes within the 10 s presence window, tray `alone` | | |
 | A7 | Reopen `L`. Wait for quarantine to expire | `L` is still owner; `D` mutes again. Stored ownership survived absence. *The arbitration half is automated as of row 4; this row now confirms the real lid-open path - sleep, resume, network re-acquisition - which CI cannot reach* | | |
 | A8 | `L` owner, `D` muted. Exit `L` **gracefully** from the tray menu | `D` unmutes in **under a second**, not after 10 s. This is the `bye` datagram | | |
-| A9 | Repeat A8 but hard-kill `L` instead | `D` takes the full 10 s window. Confirm the log distinguishes this from A8 | | |
+| A9 | Repeat A8 but hard-kill `L` instead | `D` takes the full 10 s window. Confirm the log distinguishes this from A8 | | Signable as of work item 8: the presence-lost line records whether peer loss came via a `bye` or a timeout |
 | A10 | `L` owner. Shut Windows down on `L` normally | Same as A8 - `bye` is sent on `WM_ENDSESSION`, not only on tray exit | | |
 | A11 | Start a Windows shutdown on `L`, then **cancel it** | `L` keeps running. It must not have announced a departure it did not make; presence re-establishes on the next heartbeat | | |
 | A12 | `L` claims with the hotkey and is immediately shut down | `D` adopts the claim from the state datagram. The `bye` that follows must **not** move ownership | | |
@@ -137,7 +137,7 @@ vectors to mutate.
 | G6 | Confirm `pairing.json` is gone from both machines after G3 | Deleted on both sides. It is the only place `pairKey` exists in cleartext | | |
 | G7 | Run `install.ps1` over a running instance | Running instance stops gracefully and restores audio *before* the binary is replaced | | |
 | G8 | Stop both, update both, start both | No mixed-version window; normal operation resumes | | |
-| G9 | Update one machine only, with an incompatible wire version | Peer sees no peer, both audible. **The tray raises `error` with cause "peer unverifiable", and the log shows a sustained `pairId`-matching `mac`-failure rate** - which is what distinguishes this from a switched-off peer | | |
+| G9 | Update one machine only, with an incompatible wire version | Peer sees no peer, both audible. **The tray raises `error` with cause "peer unverifiable", and the log shows a sustained `pairId`-matching `mac`-failure rate** - which is what distinguishes this from a switched-off peer | | Signable as of work item 8: the tray cause comes from the reducer, and the log line shows the per-minute `mac`-failure count with `anyAccepted=false` |
 | G10 | `uninstall.ps1` while muted | Audio restored, task removed, `config.json` deleted | | |
 | G11 | `uninstall.ps1 -KeepConfig`, then reinstall | Pairing survives; no second ceremony needed | | |
 

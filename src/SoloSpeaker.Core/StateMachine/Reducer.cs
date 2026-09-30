@@ -54,8 +54,8 @@ public static class Reducer
 
         state = arbitrationEvent switch
         {
-            ArbitrationEvent.MicRisingEdge => Claim(context, state, effects),
-            ArbitrationEvent.ManualClaim => Claim(context, state, effects),
+            ArbitrationEvent.MicRisingEdge => Claim(context, state, effects, OwnershipSource.MicEdge),
+            ArbitrationEvent.ManualClaim => Claim(context, state, effects, OwnershipSource.ManualClaim),
             ArbitrationEvent.SelfMicChanged mic => state with { SelfMicLive = mic.Live },
             ArbitrationEvent.PeerStateReceived peer => PeerState(context, state, peer, effects, now),
             ArbitrationEvent.PeerDeparted => Departed(state),
@@ -89,7 +89,8 @@ public static class Reducer
     private static ArbitrationState Claim(
         in ArbitrationContext context,
         ArbitrationState state,
-        ImmutableArray<ArbitrationEffect>.Builder effects)
+        ImmutableArray<ArbitrationEffect>.Builder effects,
+        OwnershipSource source)
     {
         MachineId self = context.Roster.Self;
         ulong next = Advance(Math.Max(state.Seq, state.LastSeenPeerSeq));
@@ -102,7 +103,7 @@ public static class Reducer
         }
 
         state = state with { ActiveOwner = self, Seq = next, Quarantine = null };
-        Write(state, effects);
+        Write(state, effects, source);
         return state;
     }
 
@@ -159,7 +160,7 @@ public static class Reducer
         if (peer.Seq > state.Seq)
         {
             state = state with { ActiveOwner = peer.ActiveOwner, Seq = peer.Seq };
-            Write(state, effects);
+            Write(state, effects, OwnershipSource.PeerAdoption);
             return state;
         }
 
@@ -181,7 +182,7 @@ public static class Reducer
         }
 
         state = state with { ActiveOwner = winner, Seq = Advance(state.Seq) };
-        Write(state, effects);
+        Write(state, effects, OwnershipSource.TiebreakWin);
         return state;
     }
 
@@ -274,7 +275,7 @@ public static class Reducer
             Seq = Advance(Math.Max(state.Seq, window.ObservedSeq)),
         };
 
-        Write(state, effects);
+        Write(state, effects, OwnershipSource.QuarantineAdoption);
         return state;
     }
 
@@ -321,9 +322,12 @@ public static class Reducer
     }
 
     // §5.1's ordering: persist, then broadcast.
-    private static void Write(ArbitrationState state, ImmutableArray<ArbitrationEffect>.Builder effects)
+    private static void Write(
+        ArbitrationState state,
+        ImmutableArray<ArbitrationEffect>.Builder effects,
+        OwnershipSource source)
     {
-        effects.Add(new ArbitrationEffect.PersistState(state.ActiveOwner, state.Seq));
+        effects.Add(new ArbitrationEffect.PersistState(state.ActiveOwner, state.Seq, source));
         effects.Add(new ArbitrationEffect.Broadcast(state.ActiveOwner, state.Seq, state.SelfMicLive));
     }
 
