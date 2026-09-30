@@ -15,10 +15,18 @@ public interface IPeerTransport
     event Action<ReadOnlyMemory<byte>>? DatagramReceived;
 
     /// <summary>
-    /// Whether the socket has successfully bound and sent at least once. The §7.6
-    /// quarantine window starts from this point, not from process start, because the
-    /// network stack is routinely unavailable for several seconds after resume.
+    /// Whether the socket is currently bound. Design revision 10: this is a state, not a
+    /// latch, because a transport that re-binds after losing the network would otherwise
+    /// report health it no longer has.
     /// </summary>
+    /// <remarks>
+    /// §7.6's quarantine window no longer starts from this point. It is open from process
+    /// start, decided in <c>StartupDecision</c>, because a window whose trigger was a send
+    /// could not be implemented - a quarantined machine broadcasts nothing, so the trigger
+    /// either never fired or was preceded by exactly the stale datagram §7.6 exists to
+    /// prevent. A successful bind <em>restarts</em> the already-open window instead, which
+    /// is what re-measures the 12s from the point the network actually came up.
+    /// </remarks>
     bool IsBound { get; }
 
     /// <summary>

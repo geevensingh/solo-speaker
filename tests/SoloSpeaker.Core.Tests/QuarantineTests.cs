@@ -1,6 +1,8 @@
 using SoloSpeaker.Core.Identity;
 using SoloSpeaker.Core.StateMachine;
+using SoloSpeaker.Core.StateStore;
 using SoloSpeaker.Core.Tests.StateMachine;
+using SoloSpeaker.Core.Tests.WireFormat;
 
 namespace SoloSpeaker.Core.Tests;
 
@@ -95,6 +97,45 @@ public sealed class QuarantineTests
         harness.Apply(PastExpiry, new ArbitrationEvent.Tick());
 
         Assert.NotEmpty(harness.Broadcasts);
+    }
+
+    /// <summary>
+    /// Lid-open guard: StartupDecision opens the window before any host participant can send
+    /// bytes, so the first cadence ticks cannot leak persisted ownership onto the wire.
+    /// </summary>
+    [Fact]
+    public void A_machine_that_starts_quarantined_emits_no_broadcast_until_the_window_expires()
+    {
+        StartupOutcome outcome = StartupDecision.Decide(
+            WireVectorConstants.PairId,
+            PersistedReadResult.Loaded,
+            WireVectorConstants.PairId,
+            ReducerHarness.Id(ReducerHarness.AHex),
+            500,
+            TimeSpan.Zero);
+
+        if (!Roster.TryCreate(
+            ReducerHarness.Id(ReducerHarness.AHex),
+            ReducerHarness.Id(ReducerHarness.BHex),
+            out Roster? roster))
+        {
+            throw new InvalidOperationException("Test roster is invalid.");
+        }
+
+        ArbitrationContext context = ArbitrationContext.ForEvent(roster!);
+        ArbitrationState state = outcome.State;
+
+        ReducerResult firstTick = Reducer.Reduce(context, state, new ArbitrationEvent.Tick(), TimeSpan.Zero);
+        Assert.Empty(firstTick.Effects.OfType<ArbitrationEffect.Broadcast>());
+
+        ReducerResult inWindowTick = Reducer.Reduce(
+            context, firstTick.State, new ArbitrationEvent.Tick(), TimeSpan.FromSeconds(11));
+        Assert.Empty(inWindowTick.Effects.OfType<ArbitrationEffect.Broadcast>());
+
+        ReducerResult expiredTick = Reducer.Reduce(
+            context, inWindowTick.State, new ArbitrationEvent.Tick(), PastExpiry);
+        Assert.NotEmpty(expiredTick.Effects.OfType<ArbitrationEffect.Broadcast>());
+        Assert.Null(expiredTick.State.Quarantine);
     }
 
     /// <summary>§7.6: "Live events are never suppressed."</summary>

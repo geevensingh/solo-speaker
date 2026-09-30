@@ -144,7 +144,11 @@ Constraints that come from the design and are not open questions:
   `SoloSpeaker.App`. Actuation, ledger replay, hotkey registration, tray rendering
   and pairing are composed *alongside* the cycle in the host, never *into* it.
   Without that sentence every later work item has a default answer, and the default
-  is "add it to the loop".
+  is "add it to the loop". Row 6 adds the successor risk: the default becomes
+  "add it to the host". `SoloSpeakerHost` owns exactly three things: process
+  lifetime and the message pump, construction order, and shutdown order. Everything
+  else is a participant, constructed beside the cycle, handed the event dispatch
+  plus the seams it needs, and never reached into afterward.
 - **`StateMachine` is a pure reducer** (`(currentState, event, now) ->
   (newState, effects)`) and **all I/O lives at the edges**. This is called out
   in the design as the main testability decision. Do not put a socket, an audio

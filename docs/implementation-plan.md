@@ -141,18 +141,21 @@ rather than trusting if the seam ever moves.
 
 **CI cannot prove:** that `IAudioEndpointVolume::SetMute` actually silences the machine;
 that capture-session enumeration sees a real Teams or Zoom call; that UDP broadcast
-crosses a real subnet; that resume-from-sleep restarts the quarantine window; that a
-headset swap re-targets the endpoint; that `RegisterHotKey` conflicts are detected. Every
-one of those lives in [`manual-test-matrix.md`](manual-test-matrix.md) and is signed off
-by hand, per release, on both machines.
+crosses a real subnet; that resume-from-sleep produces the real bind or network-change
+edge that restarts the quarantine window; that a headset swap re-targets the endpoint; that
+`RegisterHotKey` conflicts are detected. Every one of those lives in
+[`manual-test-matrix.md`](manual-test-matrix.md) and is signed off by hand, per release, on
+both machines.
 
 Two more belong on that list, and they are easy to miss because the two-node harness looks
 like it covers them. **Clock skew between the machines** is unrepresentable in a harness
 driven by one controlled clock - which is sound, because the reducer never compares clocks
 and `sentUtc` is not a drop condition, but it means the harness demonstrates nothing about
-skew. And **socket bind ordering**, which §7.6 makes the trigger for the quarantine window
-("it starts on first successful socket bind and send"), is raised directly as an event by
-the harness rather than observed. Both are real-network properties.
+skew. Quarantine entry itself is no longer on this list: moving it into Core's
+`StartupDecision` means the harness can observe that startup hands the host an already-open
+window. The remaining socket edge is **bind-triggered restart**: §7.6 re-measures the
+window on first successful socket bind, and the harness raises `QuarantineRestarted`
+directly rather than observing a real bind. That restart remains a real-network property.
 
 A third, from work item 5: **that a `config.json` protected under a different Windows user
 profile fails to decrypt**. A test process runs as one profile and cannot protect data as
@@ -472,7 +475,7 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 | 3 | `StateMachine` reducer | All of §4.2 green, **plus §4.4's unverifiable-peer producer**. §4.2 has no row for that producer and row 2 structurally could not implement it, so without this clause row 3 would land a §7.4 producer with no completion test - which is §7.4's original defect |
 | 4 | Two-node in-process harness | All of §4.3 green |
 | 5 | `StateStore` + `ConfigStore` over `IFileStore`, atomic write, cross-file `pairId` check, **DPAPI `ISecretProtector`** | §4.5's state rows green in Core, including the restart scenario over the real store. `App.Tests` proves DPAPI **fails closed** - a wrong entropy and a corrupted ciphertext both return `false` rather than throwing. The cross-profile case itself is manual row E10: a test process cannot protect data as another Windows profile, and DPAPI surfaces both through the same failure route |
-| 6 | `PeerLink` over real UDP, including `bye` on graceful exit and its three receipt rules | Two instances on one host, separate config roots and ports, exchange state; a `bye` clears presence without moving `activeOwner` |
+| 6 | `PeerLink` over real UDP, including `bye` on graceful exit and its three receipt rules | Two instances on one host, separate config roots, and one port with `SO_REUSEADDR`, exchange state; a `bye` clears presence without moving `activeOwner` |
 | 7 | `MuteActuator` + `Ledger` over `IFileStore` + `--restore` + `IMMNotificationClient` | §4.5's ledger rows green in Core; headset swap re-targets by hand |
 | 8 | **Logging** (ADR 0015), with per-minute ingress-drop aggregation | Ownership changes name their source; a version mismatch is distinguishable from an absent peer |
 | 9 | Tray: five states, **icons** (ADR 0014), named producers, hotkey, sticky `error` | Every state reachable and observed; registration failure raises `error` |
@@ -482,10 +485,15 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 | 13 | Manual matrix sign-off | [`manual-test-matrix.md`](manual-test-matrix.md) fully signed |
 
 Step 6 is worth a note: a good deal of PeerLink can be exercised on one machine by running
-two instances with separate config roots and ports. It does not cover subnet broadcast
-behaviour, but it covers the pipeline above the socket. Note that step 12's guard uses a
-single named mutex, so the two-instance technique needs the guard scoped by config root
-rather than by machine - decide that when step 12 lands, not before.
+two instances with separate config roots on the same configured port, with both sockets
+bound using `SO_REUSEADDR`. That is the same addressing model as two machines on a subnet:
+one broadcast destination, multiple listeners. It also covers broadcast delivery and the
+self-origin drop, because Windows delivers a subnet broadcast to both local sockets,
+including the sender's own. Separate roots still matter: they carry identity, and without
+them both instances share a roster self-entry and every datagram is discarded as
+self-origin, so the test would pass vacuously. Work item 6 ships the mutex name derivation
+needed to keep this technique alive; work item 12 still ships acquisition, the tray
+balloon, the exit code, and the shutdown channel.
 
 Step 8 comes before the tray deliberately. Bringing up five icon states without a log is
 harder than it needs to be, and the log is what makes step 10's pairing failures legible.

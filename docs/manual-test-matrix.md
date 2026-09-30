@@ -58,9 +58,9 @@ someone "helpfully" making it a function of current conditions.
 |---|---|---|---|---|
 | C1 | `L` owner. Sleep `L`. Claim on `D`. Wake `L` | **`L` does not steal the mute back.** `D` stays owner; `L` adopts `D`'s state despite holding a higher `seq` | | |
 | C2 | Close `L`'s lid, wait 5 min, open it | No ownership movement. This is the row §7.6 exists for | | |
-| C3 | Reboot both simultaneously | Both quarantine, both audible, converge on expiry. Neither is left muted. *Automated as of row 4; keep this row only to confirm real socket bind ordering starts the window, which CI cannot reach* | | |
+| C3 | Reboot both simultaneously | Both quarantine from startup by construction, both audible, converge on expiry. Neither is left muted. *Automated as of row 4; keep this row to confirm a real successful bind restarts the window, which CI only simulates* | | |
 | C4 | Sleep `L`. Wake it and immediately press the hotkey, inside the 12 s window | Claim wins immediately; quarantine exits. A machine booting into a meeting must not mute itself | | |
-| C5 | Disconnect and reconnect `L`'s Wi-Fi | Quarantine window restarts on the network-change notification | | |
+| C5 | Disconnect and reconnect `L`'s Wi-Fi | Quarantine window restarts on the network-change notification. A self-initiated socket re-bind raises the same `NetworkChanged` edge, so this row covers both paths | | |
 | C6 | `L` wakes and sees `D`'s heartbeats, then `D` shuts down gracefully mid-window | **`L` still adopts `D`'s state at expiry.** The observation latch is set and `D`'s parting `bye` must not clear it. This is the B-2 case, and it needs no attacker | | |
 | C7 | Suspend `L` mid-mute for over an hour, then resume | Audio state correct; no stuck mute; tray accurate | | |
 

@@ -292,11 +292,20 @@ public sealed class TwoNodeTests
         Assert.Equal(seq, harness.NodeA.State.Seq);
 
         // §5.5 is false immediately after a restart whatever the owner says, because
-        // presence does not survive one - Goal 1's direction.
+        // presence does not survive one - Goal 1's direction. Design revision 10 adds a
+        // second, independent reason: the restart is quarantined by construction, and §5.5
+        // gates shouldMute on the window being closed.
         Assert.False(harness.NodeA.ShouldMute);
-        Assert.Equal(TrayState.Alone, harness.NodeA.Tray);
+        Assert.Equal(TrayState.Quarantine, harness.NodeA.Tray);
 
-        // ...and it comes back as soon as the peer is heard again.
+        // Hearing the peer again is not enough on its own now - the window has to close
+        // first, which is what stops a rejoining machine muting on a claim it may have
+        // already missed the end of.
+        harness.Beat(2);
+        Assert.False(harness.NodeA.ShouldMute);
+
+        // ...and it comes back once the window expires and the peer is heard again.
+        harness.Advance(harness.Tunables.QuarantineWindow);
         harness.Beat(2);
         Assert.True(harness.NodeA.ShouldMute);
     }

@@ -135,7 +135,7 @@ public sealed class UnverifiablePeerTests
     }
 
     /// <summary>
-    /// The two continuous causes the reducer cannot re-derive survive acknowledgement, and
+    /// The continuous causes the reducer cannot re-derive survive acknowledgement, and
     /// are cleared only by their owner retracting them.
     /// </summary>
     /// <remarks>
@@ -148,8 +148,11 @@ public sealed class UnverifiablePeerTests
     [Theory]
     [InlineData(ErrorCause.StatePairIdMismatch)]
     [InlineData(ErrorCause.RosterIncompleteAfterPairing)]
+    [InlineData(ErrorCause.TransportUnavailable)]
     public void An_externally_raised_continuous_cause_is_reported_and_survives_acknowledgement(ErrorCause cause)
     {
+        Assert.True(cause.IsContinuous());
+
         ReducerHarness harness = ReducerHarness.For().Apply(new ArbitrationEvent.ErrorRaised(cause));
 
         Assert.Equal(cause, harness.Error);
@@ -167,6 +170,7 @@ public sealed class UnverifiablePeerTests
     [Theory]
     [InlineData(ErrorCause.StatePairIdMismatch)]
     [InlineData(ErrorCause.RosterIncompleteAfterPairing)]
+    [InlineData(ErrorCause.TransportUnavailable)]
     public void A_continuous_cause_is_cleared_by_its_owner_retracting_it(ErrorCause cause)
     {
         ReducerHarness harness = ReducerHarness.For()

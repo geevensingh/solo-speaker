@@ -27,11 +27,27 @@ public readonly record struct StartupOutcome(ArbitrationState State, ErrorCause 
 /// Every outcome leaves the machine audible. There is no combination of these two files that
 /// produces a mute, which is Goal 1 holding by construction rather than by failsafe.
 /// </para>
+/// <para>
+/// <b>Every outcome is also quarantined.</b> Design revision 10: §7.6 used to say the rejoin
+/// window "starts on first successful socket bind and send", which cannot be implemented.
+/// A quarantined machine broadcasts nothing, so a window whose trigger is a send either
+/// never opens - leaving the machine permanently silent - or is preceded by exactly one
+/// datagram carrying the persisted <c>(activeOwner, seq)</c>, which lets a running peer
+/// adopt the stale higher <c>seq</c> and mute. That second branch is the lid-open defect
+/// §7.6 exists to prevent.
+/// </para>
+/// <para>
+/// Opening the window here makes the silence a property of the state the host is handed
+/// rather than of the order in which the host does things, so no host bug can reintroduce
+/// that datagram. The first successful bind then raises <c>QuarantineRestarted</c>, which
+/// preserves the latch and re-measures the 12s from the point the network actually came up -
+/// which is what §7.6's "not from process start" rationale was reaching for.
+/// </para>
 /// </remarks>
 public static class StartupDecision
 {
     /// <summary>
-    /// Decides what to start from.
+    /// Decides what to start from. The result is always quarantined - see the type remarks.
     /// </summary>
     /// <param name="configPairId">
     /// The pairing the configuration names. <see langword="null"/> when there is no usable
@@ -41,7 +57,27 @@ public static class StartupDecision
     /// <param name="statePairId">The pairing the state file names, if it was readable.</param>
     /// <param name="activeOwner">The persisted owner, if it was readable.</param>
     /// <param name="seq">The persisted clock, if it was readable.</param>
+    /// <param name="now">
+    /// Monotonic time the window opens from. The bind restarts it, so this only bounds how
+    /// long a machine that never binds stays silent.
+    /// </param>
     public static StartupOutcome Decide(
+        PairId? configPairId,
+        PersistedReadResult stateRead,
+        PairId? statePairId,
+        MachineId activeOwner,
+        ulong seq,
+        TimeSpan now)
+    {
+        StartupOutcome outcome = Classify(configPairId, stateRead, statePairId, activeOwner, seq);
+
+        return outcome with
+        {
+            State = outcome.State with { Quarantine = QuarantineWindow.Started(now) },
+        };
+    }
+
+    private static StartupOutcome Classify(
         PairId? configPairId,
         PersistedReadResult stateRead,
         PairId? statePairId,

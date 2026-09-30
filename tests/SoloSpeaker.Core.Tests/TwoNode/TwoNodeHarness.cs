@@ -190,7 +190,7 @@ internal sealed class TwoNodeHarness
             StateStore.TryLoadState(out MachineId activeOwner, out ulong seq);
 
             StartupOutcome outcome = StartupDecision.Decide(
-                Config.PairId, StateStore.LastRead, StateStore.StatePairId, activeOwner, seq);
+                Config.PairId, StateStore.LastRead, StateStore.StatePairId, activeOwner, seq, _clock.Elapsed);
 
             Loop = BuildLoop(outcome.State);
             return outcome;

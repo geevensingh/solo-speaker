@@ -21,11 +21,12 @@ public sealed class HarnessSmokeTests
     }
 
     /// <summary>
-    /// The stub exit-code contract, which <c>scripts/uninstall.ps1</c> depends on. An
-    /// earlier stub returned <c>args.Length</c>, so <c>--restore</c> exited 1 and drove the
-    /// uninstaller down a branch that deleted the binary and the mutation ledger behind a
-    /// mute it had not repaired. The contract is asserted rather than assumed because the
-    /// cost of getting it wrong is <c>design.md</c> Goal 1.
+    /// The unimplemented-subcommand exit-code contract, which <c>scripts/uninstall.ps1</c>
+    /// depends on. An earlier stub returned <c>args.Length</c>, so <c>--restore</c> exited 1
+    /// and drove the uninstaller down a branch that deleted the binary and the mutation
+    /// ledger behind a mute it had not repaired. Work item 6 made the bare-launch path real
+    /// and deliberately left this one failing, because <c>--restore</c> cannot actually
+    /// restore anything until work item 7 lands the actuator and the ledger.
     /// </summary>
     [Fact]
     public void Unimplemented_subcommand_does_not_report_success()

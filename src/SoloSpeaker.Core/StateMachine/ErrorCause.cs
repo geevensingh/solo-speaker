@@ -96,6 +96,19 @@ public enum ErrorCause
     /// and the effect list had no channel to report it.
     /// </remarks>
     StatePersistFailed,
+
+    /// <summary>
+    /// §7.1: the socket could not be bound, or lost the network and has not been re-bound.
+    /// Continuous - retracted on the next successful bind. Raised at row 6.
+    /// </summary>
+    /// <remarks>
+    /// Added in design revision 10. A machine whose bind never succeeds is indistinguishable
+    /// from one whose peer is switched off: it never establishes presence, so §5.5 keeps it
+    /// audible and Goal 1 holds - but nothing anywhere explains why the pair stopped
+    /// working. §7.4 calls the tray "the only visible explanation for why a machine is
+    /// silent", and without this member row 6's own failure mode had no producer.
+    /// </remarks>
+    TransportUnavailable,
 }
 
 /// <summary>Classification helpers for <see cref="ErrorCause"/>.</summary>
@@ -120,6 +133,7 @@ public static class ErrorCauseExtensions
         ErrorCause.StateUnreadable => true,
         ErrorCause.PersistedSchemaUnknown => true,
         ErrorCause.PairKeyRefused => true,
+        ErrorCause.TransportUnavailable => true,
         _ => false,
     };
 }

@@ -305,7 +305,7 @@ public sealed class PersistenceTests
     public void Matching_pair_ids_start_from_the_persisted_state()
     {
         StartupOutcome outcome = StartupDecision.Decide(
-            PairId, PersistedReadResult.Loaded, PairId, Peer, 41);
+            PairId, PersistedReadResult.Loaded, PairId, Peer, 41, TimeSpan.Zero);
 
         Assert.Equal(ErrorCause.None, outcome.Cause);
         Assert.Equal(Peer, outcome.State.ActiveOwner);
@@ -319,7 +319,7 @@ public sealed class PersistenceTests
         PairId other = WireVectorConstants.ParsePairId("00112233445566778899aabbccddeeff");
 
         StartupOutcome outcome = StartupDecision.Decide(
-            PairId, PersistedReadResult.Loaded, other, Peer, 41);
+            PairId, PersistedReadResult.Loaded, other, Peer, 41, TimeSpan.Zero);
 
         Assert.Equal(ErrorCause.StatePairIdMismatch, outcome.Cause);
         Assert.True(outcome.State.ActiveOwner.IsNone);
@@ -333,7 +333,7 @@ public sealed class PersistenceTests
     public void A_deleted_state_file_on_a_configured_machine_raises()
     {
         StartupOutcome outcome = StartupDecision.Decide(
-            PairId, PersistedReadResult.Absent, null, MachineId.None, 0);
+            PairId, PersistedReadResult.Absent, null, MachineId.None, 0, TimeSpan.Zero);
 
         Assert.Equal(ErrorCause.StateUnreadable, outcome.Cause);
     }
@@ -342,7 +342,7 @@ public sealed class PersistenceTests
     public void A_genuine_first_run_is_not_an_error()
     {
         StartupOutcome outcome = StartupDecision.Decide(
-            null, PersistedReadResult.Absent, null, MachineId.None, 0);
+            null, PersistedReadResult.Absent, null, MachineId.None, 0, TimeSpan.Zero);
 
         Assert.Equal(ErrorCause.None, outcome.Cause);
         Assert.True(outcome.State.ActiveOwner.IsNone);
@@ -358,7 +358,7 @@ public sealed class PersistenceTests
     public void State_without_configuration_is_reported_rather_than_acted_on()
     {
         StartupOutcome outcome = StartupDecision.Decide(
-            null, PersistedReadResult.Loaded, PairId, Peer, 41);
+            null, PersistedReadResult.Loaded, PairId, Peer, 41, TimeSpan.Zero);
 
         Assert.Equal(ErrorCause.StateUnreadable, outcome.Cause);
         Assert.True(outcome.State.ActiveOwner.IsNone);
@@ -372,11 +372,11 @@ public sealed class PersistenceTests
 
         StartupOutcome[] outcomes =
         [
-            StartupDecision.Decide(null, PersistedReadResult.Absent, null, MachineId.None, 0),
-            StartupDecision.Decide(PairId, PersistedReadResult.Absent, null, MachineId.None, 0),
-            StartupDecision.Decide(PairId, PersistedReadResult.Loaded, other, Peer, 41),
-            StartupDecision.Decide(PairId, PersistedReadResult.Refused(ErrorCause.StateUnreadable), null, Peer, 41),
-            StartupDecision.Decide(null, PersistedReadResult.Loaded, PairId, Peer, 41),
+            StartupDecision.Decide(null, PersistedReadResult.Absent, null, MachineId.None, 0, TimeSpan.Zero),
+            StartupDecision.Decide(PairId, PersistedReadResult.Absent, null, MachineId.None, 0, TimeSpan.Zero),
+            StartupDecision.Decide(PairId, PersistedReadResult.Loaded, other, Peer, 41, TimeSpan.Zero),
+            StartupDecision.Decide(PairId, PersistedReadResult.Refused(ErrorCause.StateUnreadable), null, Peer, 41, TimeSpan.Zero),
+            StartupDecision.Decide(null, PersistedReadResult.Loaded, PairId, Peer, 41, TimeSpan.Zero),
         ];
 
         foreach (StartupOutcome outcome in outcomes)
@@ -384,7 +384,37 @@ public sealed class PersistenceTests
             // Presence is never carried across a restart, so nothing can mute before a peer
             // is heard from again - whatever the owner says.
             Assert.Null(outcome.State.PeerLastSeenAt);
-            Assert.Null(outcome.State.Quarantine);
+
+            // Design revision 10: and every outcome is quarantined, which closes the
+            // direction this test used to leave open. A quarantined machine broadcasts
+            // nothing, so a cold start cannot put its persisted (activeOwner, seq) on the
+            // wire and make the *peer* mute either. §5.5 also gates shouldMute on the window
+            // being closed, so the local machine stays audible for its whole duration.
+            Assert.NotNull(outcome.State.Quarantine);
+        }
+    }
+
+    /// <summary>
+    /// Design revision 10: cold-start silence is guaranteed by the StartupDecision result
+    /// itself, not by the host remembering to enter quarantine before it starts the socket.
+    /// </summary>
+    [Fact]
+    public void Every_startup_decision_outcome_opens_the_quarantine_window()
+    {
+        PairId other = WireVectorConstants.ParsePairId("00112233445566778899aabbccddeeff");
+
+        StartupOutcome[] outcomes =
+        [
+            StartupDecision.Decide(null, PersistedReadResult.Absent, null, MachineId.None, 0, TimeSpan.Zero),
+            StartupDecision.Decide(PairId, PersistedReadResult.Absent, null, MachineId.None, 0, TimeSpan.Zero),
+            StartupDecision.Decide(PairId, PersistedReadResult.Loaded, other, Peer, 41, TimeSpan.Zero),
+            StartupDecision.Decide(PairId, PersistedReadResult.Refused(ErrorCause.StateUnreadable), null, Peer, 41, TimeSpan.Zero),
+            StartupDecision.Decide(null, PersistedReadResult.Loaded, PairId, Peer, 41, TimeSpan.Zero),
+        ];
+
+        foreach (StartupOutcome outcome in outcomes)
+        {
+            Assert.NotNull(outcome.State.Quarantine);
         }
     }
 }

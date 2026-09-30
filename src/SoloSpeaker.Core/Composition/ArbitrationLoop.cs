@@ -35,6 +35,15 @@ public sealed class ArbitrationLoop : IProximitySource
     private readonly ArbitrationTunables _tunables;
 
     /// <summary>Creates a loop over its two seams and an effect executor.</summary>
+    /// <remarks>
+    /// The constructor does not reduce. It used to prime itself with a <see
+    /// cref="ArbitrationEvent.Tick"/> whose effects it then discarded - which stamped
+    /// <c>LastBroadcastAt</c> for a broadcast that never reached the executor, so the state
+    /// recorded a beat that never went out and the first real one was a full cadence late.
+    /// Invisible while <see cref="IPeerTransport"/> had no implementation; wire-visible from
+    /// work item 6. The host posts the first tick like every other one, which makes "the
+    /// executor is the only place effects are drained" an invariant rather than a convention.
+    /// </remarks>
     public ArbitrationLoop(
         IClock clock,
         IConfigStore config,
@@ -52,8 +61,7 @@ public sealed class ArbitrationLoop : IProximitySource
         _tunables = tunables ?? ArbitrationTunables.Default;
 
         State = initialState ?? ArbitrationState.Fresh();
-        LastResult = Reducer.Reduce(Context(), State, new ArbitrationEvent.Tick(), clock.Elapsed);
-        State = LastResult.State;
+        LastResult = Reducer.Initial(Context(), State, clock.Elapsed);
     }
 
     /// <summary>The current arbitration state.</summary>

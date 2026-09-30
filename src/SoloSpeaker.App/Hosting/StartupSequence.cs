@@ -40,25 +40,37 @@ public readonly record struct StartupResult(JsonConfigStore? Config, Arbitration
 /// </para>
 /// <para>
 /// The steps are members rather than prose so that later work items fill a slot instead of
-/// re-deriving the order from three documents. Three are no-ops today, and each names the
+/// re-deriving the order from three documents. Two are no-ops today, and each names the
 /// work item that fills it.
+/// </para>
+/// <para>
+/// There is deliberately no <c>BindTransport</c> step. Work item 6 was the first to try to
+/// fill a slot and found it could not: binding needs a port, which only exists after
+/// <c>LoadPersisted</c>, and produces a <em>socket</em>, which <see cref="StartupResult"/>
+/// cannot carry. Binding is not a persistence-ordering step, so the host owns it. Work items
+/// 7 and 12 have the same resource-producing shape - a ledger and a mutex handle that must
+/// outlive <see cref="Run"/> - and land in <c>SoloSpeakerHost</c>'s construction order for
+/// the same reason.
 /// </para>
 /// </remarks>
 public sealed class StartupSequence
 {
     private readonly IFileStore _files;
     private readonly ISecretProtector _protector;
+    private readonly IClock _clock;
     private readonly string _root;
 
     /// <summary>Creates a sequence over one data root.</summary>
-    public StartupSequence(IFileStore files, ISecretProtector protector, string root)
+    public StartupSequence(IFileStore files, ISecretProtector protector, IClock clock, string root)
     {
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(protector);
+        ArgumentNullException.ThrowIfNull(clock);
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
 
         _files = files;
         _protector = protector;
+        _clock = clock;
         _root = root;
     }
 
@@ -68,14 +80,7 @@ public sealed class StartupSequence
         AcquireSingleInstance();
         ReplayLedger();
 
-        StartupResult loaded = LoadPersisted();
-
-        // EnterQuarantine is not called here: §7.6 starts the window on first successful
-        // socket bind and send, which is BindTransport's business, and the event that opens
-        // it already ships as ArbitrationEvent.QuarantineEntered.
-        BindTransport();
-
-        return loaded;
+        return LoadPersisted();
     }
 
     /// <summary>
@@ -91,11 +96,6 @@ public sealed class StartupSequence
     /// instance is entitled to do, which is why the guard precedes it. Work item 7.
     /// </summary>
     private static void ReplayLedger()
-    {
-    }
-
-    /// <summary>§7.6's rejoin window opens here, on first successful bind and send. Work item 6.</summary>
-    private static void BindTransport()
     {
     }
 
@@ -120,7 +120,7 @@ public sealed class StartupSequence
             unpaired.TryLoadState(out _, out _);
 
             StartupOutcome outcome = StartupDecision.Decide(
-                null, unpaired.LastRead, unpaired.StatePairId, MachineId.None, 0);
+                null, unpaired.LastRead, unpaired.StatePairId, MachineId.None, 0, _clock.Elapsed);
 
             return new StartupResult(null, outcome.State, outcome.Cause);
         }
@@ -129,7 +129,7 @@ public sealed class StartupSequence
         JsonStateStore.TryLoadState(out MachineId activeOwner, out ulong seq);
 
         StartupOutcome decided = StartupDecision.Decide(
-            config.PairId, JsonStateStore.LastRead, JsonStateStore.StatePairId, activeOwner, seq);
+            config.PairId, JsonStateStore.LastRead, JsonStateStore.StatePairId, activeOwner, seq, _clock.Elapsed);
 
         // A tunable that fell back names itself, but only when nothing louder is already
         // pending - §7.4 names the first cause raised.

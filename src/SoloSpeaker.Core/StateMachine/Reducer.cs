@@ -22,6 +22,23 @@ namespace SoloSpeaker.Core.StateMachine;
 /// </remarks>
 public static class Reducer
 {
+    /// <summary>
+    /// Publishes the derived values for a state without reducing anything.
+    /// </summary>
+    /// <remarks>
+    /// What a loop needs at construction: §5.5's mute predicate and §7.4's tray state are
+    /// functions of the state, not of any event, so a freshly-built loop can expose them
+    /// without first inventing an event to reduce. It emits no effects, which is what makes
+    /// it safe to call before an executor is wired up.
+    /// </remarks>
+    public static ReducerResult Initial(in ArbitrationContext context, ArbitrationState state, TimeSpan now)
+    {
+        ArgumentNullException.ThrowIfNull(state);
+        ArgumentNullException.ThrowIfNull(context.Roster);
+
+        return Derive(context, state, ImmutableArray<ArbitrationEffect>.Empty, now);
+    }
+
     /// <summary>Reduces one event.</summary>
     public static ReducerResult Reduce(
         in ArbitrationContext context,

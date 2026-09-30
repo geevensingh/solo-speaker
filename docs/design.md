@@ -1,8 +1,25 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 9 - settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 10 - fixes the PeerLink transport and rejoin contradictions row 6 surfaced; revision 9 settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 10 changes, 2026-09-29.** Two amendments from the row 6 review settle
+> PeerLink's real-socket edge cases before UDP ships.
+>
+> **§7.6's quarantine trigger could not include "and send".** A quarantined machine
+> broadcasts nothing; if the window waited for a send, the trigger either never fired, or
+> the first send escaped quarantine carrying the persisted `(activeOwner, seq)` and
+> recreated the lid-open defect this section exists to prevent. Startup now enters
+> quarantine by construction in Core's `StartupDecision`, and the first successful socket
+> bind only restarts that already-open window so the 12s measurement begins when the
+> network actually exists. UDP `SendTo` was never a useful reachability signal: success
+> only means the kernel accepted bytes into the void.
+>
+> **§7.4 gets a transport error producer.** A bind failure or lost network does not break
+> Goal 1 - a machine that cannot receive cannot establish presence, so §5.5 keeps it
+> audible - but it did break the tray's other job: explaining why a machine is deaf.
+> `TransportUnavailable` is continuous and retracts on the next successful bind.
 
 > **Revision 9 changes, 2026-09-29.** Six amendments from the three-critic review of the row 5
 > persistence plan. §8 draws the phase boundary around persisted state, so these are the last
@@ -682,7 +699,7 @@ loop this option is prone to.
 | `unclaimed` | `activeOwner == MachineId.None` and a peer is present - nobody has claimed yet, so both machines are audible *(revision 7)* |
 | `alone` | no peer heartbeat within the presence window |
 | `quarantine` | §7.6 rejoin window, state not yet reconciled |
-| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded, **on the wire or on disk**; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile; **a `pairKey` the configuration store refuses** (§7.5); **a persisted file whose `schema` this build does not recognise**; **a tunable field that failed validation and fell back to its default** |
+| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded, **on the wire or on disk**; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile; **a `pairKey` the configuration store refuses** (§7.5); **a persisted file whose `schema` this build does not recognise**; **a tunable field that failed validation and fell back to its default**; **`TransportUnavailable` - the socket could not be bound, or lost the network and has not been re-bound** |
 
 `activeOwner == MachineId.None` is the ordinary pre-claim state of §5 and is **never** an
 `error` cause. *(revision 7)* It gets its own state rather than being folded into `active`
@@ -696,16 +713,24 @@ built, so the only §5.1 writer is a manual claim: a freshly paired pair sits in
 indefinitely until somebody presses the hotkey. It is the first thing a user sees, on both
 machines, and the one state with a specific action attached.
 
+`TransportUnavailable` is the transport's own producer, added in row 6. It is continuous:
+`PeerLink` raises it when the socket cannot bind, or when a bound socket loses the network
+and has not yet re-bound, and retracts it on the next successful bind. The cause is about
+observability, not the Goal 1 safety rule: a deaf machine cannot establish presence, so the
+§5.5 predicate keeps it audible, but without the cause the tray shows an ordinary state
+while the machine cannot hear its peer.
+
 `error` precedence: where several causes hold at once, the tooltip names the **first raised**
 and keeps it until acknowledged. Causes divide into two kinds, and they are acknowledged
 differently. **Continuous** causes - `activeOwner` outside the roster, roster incomplete
 after the pairing window, a cross-file `pairId` mismatch, an unreadable `config.json` or
-`state.json`, a refused `pairKey`, an unrecognised `schema` - are true until the condition
-itself changes and **cannot be acknowledged while they remain true**, because acknowledging
-one would clear the tray while the machine sits in exactly the condition the `error` exists
-to expose. **Edge** causes - hotkey registration failure, `seq` bound exceeded, unknown `v`,
-sustained unverifiable traffic, ledger replay failure, endpoint enumeration failure, a
-failed state write, a tunable that fell back to its default - latch until acknowledged.
+`state.json`, a refused `pairKey`, an unrecognised `schema`, `TransportUnavailable` - are
+true until the condition itself changes and **cannot be acknowledged while they remain
+true**, because acknowledging one would clear the tray while the machine sits in exactly
+the condition the `error` exists to expose. **Edge** causes - hotkey registration failure,
+`seq` bound exceeded, unknown `v`, sustained unverifiable traffic, ledger replay failure,
+endpoint enumeration failure, a failed state write, a tunable that fell back to its
+default - latch until acknowledged.
 
 *(revision 9)* Only one continuous cause - `activeOwner` outside the roster - is derivable
 by the state machine from its own state. The rest are asserted by the component that owns
@@ -819,11 +844,15 @@ was a defect in the first attempt at this fix - the machine enters `quarantine`:
   the lid-open defect outright. Silence is the only answer that does neither. The peer sees
   the presence window lapse and unmutes, which is Goal 1's direction.
 
-  Two consequences are accepted rather than hidden. The window "starts on first successful
-  socket bind and send" below, so the first send is the pairing-mode or post-window one.
-  And ADR 0011's roster completion, which rides on B's first ordinary heartbeat, is delayed
-  by up to the window on B's cold start - harmless against a ten-minute pairing window, but
-  it should be known rather than discovered.
+  That silence is a property of the startup state, not of host ordering. Core's
+  `StartupDecision` hands the host an already-open quarantine window, and the first
+  successful socket bind raises `QuarantineRestarted`, preserving the latch and observed
+  pair while re-measuring the window from the moment the network exists. A send is not part
+  of the trigger: a quarantined state cannot send, and UDP `SendTo` succeeding only says
+  the kernel accepted bytes into the void. ADR 0011's roster completion, which rides on B's
+  first ordinary heartbeat, is still delayed by up to the window on B's cold start -
+  harmless against a ten-minute pairing window, but it should be known rather than
+  discovered.
 - It does not apply mute.
 - **Peer observation is a latch, not a live flag.** Any accepted non-`bye` datagram at any
   point in the window sets it, and nothing clears it for the remainder of the window - in
@@ -863,9 +892,11 @@ was a defect in the first attempt at this fix - the machine enters `quarantine`:
   quarantine exits quarantine immediately and writes normally. Without this carve-out, a
   machine that boots directly into a meeting would mute itself mid-call - which inverts
   the design's highest-priority requirement in the name of fixing a lower-priority one.
-- The window is 12s, and it starts on **first successful socket bind and send**, not on
-  process start, because the network stack is routinely unavailable for several seconds
-  after resume. It restarts on network-change notifications.
+- The window is 12s. Startup enters it by construction in Core's `StartupDecision`; the
+  first successful socket bind raises `QuarantineRestarted`, preserving the latch and
+  observed pair while re-measuring 12s from that bind rather than from process start,
+  because the network stack is routinely unavailable for several seconds after resume. It
+  restarts on network-change notifications.
 
 Simultaneous rejoin leaves both machines in quarantine, both audible, converging normally
 when the window expires. Brief both-audible is permitted by Goal 3 and preferred by Goal 1.

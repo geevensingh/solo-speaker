@@ -22,6 +22,13 @@ no state file.
 `--restore` takes the same mutex. If it is held, it refuses with "SoloSpeaker is running;
 exit it first" rather than replaying a ledger that a live instance is actively using.
 
+**Amendment - work item 6, 2026-09-29.** The fixed name above is no longer the complete
+name. `Local\SoloSpeaker` remains the product prefix, but the runtime mutex name is derived
+from the resolved data root so two instances with different roots do not contend. Work item
+6 ships only that identity helper (`Hosting/InstanceIdentity.cs`), because its
+two-instance UDP harness depends on it. Work item 12 still ships acquisition, the tray
+balloon, the non-zero exit code, and the shutdown channel.
+
 **The guard is acquired before ledger replay, not after.** This ordering is the whole
 point of the record. §7.3 requires ledger replay to run "on every startup, before anything
 else", but a second instance starting while the first has legitimately muted an endpoint
@@ -33,7 +40,10 @@ instance is entitled to do".
 
 ## Consequences
 
-- Second launches fail fast and visibly rather than silently corrupting recovery state.
+- Second launches against the same data root fail fast and visibly rather than silently
+  corrupting recovery state.
+- Test launches against different data roots can coexist, which keeps the row 6
+  two-instance UDP harness valid after the guard lands.
 - `Local\` rather than `Global\`: the design assumes one interactive user (§9.2-6), and a
   per-session mutex is the honest scope. Fast-user-switching and RDP remain out of scope.
 - The balloon matters. A second launch that exits silently looks like the app failed to

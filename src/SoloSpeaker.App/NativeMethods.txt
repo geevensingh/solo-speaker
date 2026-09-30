@@ -23,6 +23,14 @@ RegisterHotKey
 UnregisterHotKey
 HOT_KEY_MODIFIERS
 
+// --- HostWindow (design.md 7.1 departure, work item 6) ---
+// The host marshals every arbitration mutation onto its message-only window's thread, so it
+// needs to wake that thread from the socket receive thread and the cadence timer.
+// Control.BeginInvoke is not available: a message-only NativeWindow is deliberately not a
+// WinForms Control, because a Control is a real top-level window and the host is headless
+// until work item 9 adds the tray.
+PostMessage
+
 // Rejoin quarantine (design.md 7.6) needs network-change notifications to restart the
 // window. That comes from System.Net.NetworkInformation.NetworkChange in the BCL, not
 // from interop, so there is deliberately no entry for NotifyAddrChange here.
