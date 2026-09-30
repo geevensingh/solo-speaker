@@ -94,7 +94,7 @@ public sealed class ArbitrationLoop : IProximitySource
         ArbitrationState previous = State;
         ReducerResult result = Reduce(arbitrationEvent);
 
-        Publish(arbitrationEvent, result, previous, ingress: null);
+        Publish(arbitrationEvent, result, previous, ingress: null, peerVersion: null);
 
         return result;
     }
@@ -154,7 +154,8 @@ public sealed class ArbitrationLoop : IProximitySource
         ArbitrationEvent arbitrationEvent,
         ReducerResult result,
         ArbitrationState previous,
-        IngressResult? ingress)
+        IngressResult? ingress,
+        int? peerVersion)
     {
         if (CyclePublished is not { } subscribers)
         {
@@ -166,7 +167,7 @@ public sealed class ArbitrationLoop : IProximitySource
         // brace, because an exception here would surface as a failed reduction.
         try
         {
-            subscribers(new CycleObservation(arbitrationEvent, result, previous, ingress));
+            subscribers(new CycleObservation(arbitrationEvent, result, previous, ingress, peerVersion));
         }
         catch (Exception failure) when (failure is not OutOfMemoryException and not StackOverflowException)
         {
@@ -195,14 +196,14 @@ public sealed class ArbitrationLoop : IProximitySource
         {
             ArbitrationState previous = State;
             ReducerResult result = Reduce(arbitrationEvent);
-            Publish(arbitrationEvent, result, previous, outcome.Result);
+            Publish(arbitrationEvent, result, previous, outcome.Result, outcome.PeerVersion);
         }
         else
         {
             // A datagram that reduces to nothing is still evidence. Rejections are what the
             // per-minute rollup counts, and a dropped datagram that nobody observes is the
             // whole failure ADR 0015 exists to prevent.
-            ObserveIngressOnly(outcome.Result);
+            ObserveIngressOnly(outcome.Result, outcome.PeerVersion);
         }
 
         return outcome.Result;
@@ -211,13 +212,13 @@ public sealed class ArbitrationLoop : IProximitySource
     /// <summary>
     /// Raised for an ingress verdict that produced no reduction, so drops are still counted.
     /// </summary>
-    public event Action<IngressResult>? IngressObserved;
+    public event Action<IngressResult, int?>? IngressObserved;
 
-    private void ObserveIngressOnly(IngressResult result)
+    private void ObserveIngressOnly(IngressResult result, int? peerVersion)
     {
         try
         {
-            IngressObserved?.Invoke(result);
+            IngressObserved?.Invoke(result, peerVersion);
         }
         catch (Exception failure) when (failure is not OutOfMemoryException and not StackOverflowException)
         {

@@ -39,13 +39,14 @@ public sealed class IngressDropAggregator
     ];
 
     private readonly Dictionary<IngressResult, int> _counts = [];
+    private int? _peerVersion;
 
     private TimeSpan _windowStartedAt;
     private bool _started;
     private bool _anyAccepted;
 
     /// <summary>Records one ingress verdict.</summary>
-    public void Observe(IngressResult result, TimeSpan now)
+    public void Observe(IngressResult result, TimeSpan now, int? peerVersion = null)
     {
         if (!_started)
         {
@@ -65,6 +66,15 @@ public sealed class IngressDropAggregator
         }
 
         _counts[result] = _counts.GetValueOrDefault(result) + 1;
+
+        if (result == IngressResult.UnknownVersion && peerVersion is not null)
+        {
+            // Step 5 is the only rejection whose version number is authenticated, so it is
+            // the only one an operator can act on. Last-seen rather than a set: a real
+            // version-mismatched peer has exactly one version, and a set would turn the
+            // line into a list nobody reads.
+            _peerVersion = peerVersion;
+        }
     }
 
     /// <summary>
@@ -87,12 +97,21 @@ public sealed class IngressDropAggregator
         {
             if (_counts.TryGetValue(reason, out int count) && count > 0)
             {
-                entries.Add(new LogEntry.IngressDrops(reason, count, _anyAccepted) { At = stampedAt });
+                entries.Add(
+                    new LogEntry.IngressDrops(
+                        reason,
+                        count,
+                        _anyAccepted,
+                        reason == IngressResult.UnknownVersion ? _peerVersion : null)
+                    {
+                        At = stampedAt,
+                    });
             }
         }
 
         _counts.Clear();
         _anyAccepted = false;
+        _peerVersion = null;
         _windowStartedAt = now;
 
         return entries;

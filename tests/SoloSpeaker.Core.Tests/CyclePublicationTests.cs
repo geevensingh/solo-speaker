@@ -81,7 +81,7 @@ public sealed class CyclePublicationTests
         LoopFixture fixture = LoopFixture.Create();
         List<IngressResult> observedIngress = [];
         int publishedCycles = 0;
-        fixture.Loop.IngressObserved += observedIngress.Add;
+        fixture.Loop.IngressObserved += (result, peerVersion) => observedIngress.Add(result);
         fixture.Loop.CyclePublished += _ => publishedCycles++;
 
         byte[] unreadable = [0xff];

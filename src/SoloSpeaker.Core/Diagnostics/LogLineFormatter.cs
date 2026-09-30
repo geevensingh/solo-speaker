@@ -46,7 +46,8 @@ public static class LogLineFormatter
             $"quarantine {Sanitize(quarantine.Transition)} reason={Sanitize(quarantine.Reason)}",
 
         LogEntry.IngressDrops drops =>
-            $"ingress-drops reason={drops.Reason} count={drops.Count} anyAccepted={drops.AnyAccepted}",
+            $"ingress-drops reason={drops.Reason} count={drops.Count} anyAccepted={drops.AnyAccepted}"
+            + (drops.PeerVersion is { } version ? $" peerVersion={version}" : string.Empty),
 
         LogEntry.LogGap gap =>
             $"log-gap lost={gap.LostEntries} reason={Sanitize(gap.Reason)}",

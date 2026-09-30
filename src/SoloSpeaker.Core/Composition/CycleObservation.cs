@@ -28,8 +28,14 @@ namespace SoloSpeaker.Core.Composition;
 /// The ingress verdict, when the cycle began with bytes off the wire rather than with an
 /// event. <see langword="null"/> otherwise.
 /// </param>
+/// <param name="PeerVersion">
+/// The peer's wire version, present only when <paramref name="Ingress"/> is
+/// <see cref="IngressResult.UnknownVersion"/> - the one rejection whose version number is
+/// authenticated and therefore worth recording.
+/// </param>
 public readonly record struct CycleObservation(
     ArbitrationEvent Event,
     ReducerResult Result,
     ArbitrationState PreviousState,
-    IngressResult? Ingress);
+    IngressResult? Ingress,
+    int? PeerVersion = null);

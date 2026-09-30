@@ -10,7 +10,11 @@ namespace SoloSpeaker.Core.PeerLink;
 /// <param name="Datagram">
 /// The parsed fields. Meaningful only for <see cref="IngressResult.Accepted"/> and
 /// <see cref="IngressResult.PairingEnrollment"/>; every other result means the datagram was
-/// never reconstructed, was never authenticated, or both.
+/// never reconstructed, was never authenticated, or both - with one exception.
+/// <see cref="IngressResult.UnknownVersion"/> <em>did</em> authenticate, because §7.1 checks
+/// the <c>mac</c> at step 2 and the version at step 5; its one trustworthy field is carried
+/// separately as <see cref="PeerVersion"/> rather than here, so that nothing is tempted to
+/// act on the rest of a datagram this build cannot read.
 /// </param>
 /// <param name="PairId">
 /// The sender's <c>pairId</c> where it was readable. Present even for
@@ -18,7 +22,32 @@ namespace SoloSpeaker.Core.PeerLink;
 /// unverifiable-peer producer counts - "something claims to be my pairing and I cannot
 /// verify any of it".
 /// </param>
-public readonly record struct IngressOutcome(IngressResult Result, PeerDatagram Datagram, PairId PairId)
+/// <param name="PeerVersion">
+/// The peer's wire version, present <b>only</b> for <see cref="IngressResult.UnknownVersion"/>.
+/// </param>
+/// <remarks>
+/// <para>
+/// <see cref="PeerVersion"/> is deliberately a bare number rather than the whole datagram.
+/// It is the one field of a rejected datagram that is both readable and <em>trustworthy</em>,
+/// and it is worth saying why: §7.1 verifies the <c>mac</c> at step 2 and checks the version
+/// at step 5, so anything reaching step 5 has already authenticated against the
+/// <c>pairKey</c>. Every other version-skew shape dies at step 2 as
+/// <see cref="IngressResult.BadMac"/> - rule 2 makes the receiver re-canonicalize what it
+/// parsed, so a datagram whose field set differs cannot be reconstructed and cannot verify -
+/// and no number is recoverable from that path at all.
+/// </para>
+/// <para>
+/// Carrying the number rather than <see cref="Datagram"/> follows the same rule
+/// <c>PeerStateReceived</c> records: handing a consumer the wire record would give it read
+/// access to fields it must never consult, and a rejected datagram is the last thing that
+/// should be easy to act on.
+/// </para>
+/// </remarks>
+public readonly record struct IngressOutcome(
+    IngressResult Result,
+    PeerDatagram Datagram,
+    PairId PairId,
+    int? PeerVersion = null)
 {
     /// <summary>Whether the datagram may be acted on.</summary>
     public bool IsAccepted =>
@@ -122,7 +151,11 @@ public static class IngressPipeline
         // datagram is held to them too.
         if (datagram.Version != WireProtocol.Version)
         {
-            return new IngressOutcome(IngressResult.UnknownVersion, default, pairId);
+            // The version is carried out because it is authenticated: step 2 above verified
+            // the mac, so this number came from something holding the pairKey. It is the
+            // only version-skew shape where an operator can learn what the peer is actually
+            // running - everything else dies at step 2 with nothing recoverable.
+            return new IngressOutcome(IngressResult.UnknownVersion, default, pairId, datagram.Version);
         }
 
         return new IngressOutcome(

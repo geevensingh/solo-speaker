@@ -95,7 +95,21 @@ public abstract record LogEntry
     /// second half of the condition §7.1's producer reads, and what makes matrix row G9's
     /// "both" two independent observations rather than one count.
     /// </param>
-    public sealed record IngressDrops(IngressResult Reason, int Count, bool AnyAccepted) : LogEntry
+    /// <param name="PeerVersion">
+    /// The peer's wire version, for <see cref="IngressResult.UnknownVersion"/> only.
+    /// </param>
+    /// <remarks>
+    /// The version is present for exactly one reason: §7.1 verifies the <c>mac</c> at step 2
+    /// and checks the version at step 5, so a step 5 rejection has already authenticated and
+    /// its version number can be trusted. Every other version-skew shape dies at step 2 as
+    /// <see cref="IngressResult.BadMac"/> with no number recoverable, and feeds the
+    /// rate-based unverifiable-peer producer instead. Work item 8's done-criterion is that a
+    /// version mismatch is distinguishable from an absent peer; the bare cause achieves that,
+    /// and the number is what lets an operator learn <em>which</em> version the peer runs -
+    /// the only case where that is knowable at all.
+    /// </remarks>
+    public sealed record IngressDrops(IngressResult Reason, int Count, bool AnyAccepted, int? PeerVersion = null)
+        : LogEntry
     {
         /// <inheritdoc/>
         public override string ToString() => nameof(IngressDrops);

@@ -50,14 +50,14 @@ public sealed class DiagnosticLog
         _sink.Write(new LogEntry.EndpointChanged(from, to) { At = _clock.UtcNow });
 
     /// <summary>Observes an ingress verdict that produced no reduction.</summary>
-    public void ObserveIngress(IngressResult result) => _drops.Observe(result, _clock.Elapsed);
+    public void ObserveIngress(IngressResult result, int? peerVersion = null) => _drops.Observe(result, _clock.Elapsed, peerVersion);
 
     /// <summary>Observes one turn of the cycle.</summary>
     public void Observe(CycleObservation observation)
     {
         if (observation.Ingress is { } ingress)
         {
-            _drops.Observe(ingress, _clock.Elapsed);
+            _drops.Observe(ingress, _clock.Elapsed, observation.PeerVersion);
         }
 
         ArbitrationState previous = observation.PreviousState;
