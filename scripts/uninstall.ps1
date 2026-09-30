@@ -65,11 +65,18 @@ foreach ($process in $running) {
 
 # 2. Replay the ledger before the binary disappears. This is the whole reason this script
 #    exists rather than a folder delete, and steps 4 and 5 are gated on it succeeding.
+#
+#    Start-Process -Wait, NOT the call operator. SoloSpeaker.exe is a Windows-subsystem
+#    binary, and PowerShell does not wait on one: '& $exe' returns immediately and leaves
+#    $LASTEXITCODE reflecting the launch rather than the exit. Verified by experiment -- a
+#    WinExe returning 42 reported $LASTEXITCODE 0. This script therefore used to read
+#    success unconditionally and delete the binary and the ledger on that reading, which is
+#    precisely the Goal 1 failure the branch below exists to prevent.
 $restored = $false
 if (Test-Path -LiteralPath $targetExe) {
     if ($PSCmdlet.ShouldProcess($targetExe, 'Run --restore')) {
-        & $targetExe '--restore'
-        $restoreExitCode = $LASTEXITCODE
+        $restoreProcess = Start-Process -FilePath $targetExe -ArgumentList '--restore' -Wait -PassThru -NoNewWindow
+        $restoreExitCode = $restoreProcess.ExitCode
         if ($restoreExitCode -eq 0) {
             $restored = $true
         }

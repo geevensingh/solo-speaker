@@ -35,11 +35,20 @@ public sealed record ArbitrationTunables
     public TimeSpan HeartbeatCadence { get; init; } = WireProtocol.HeartbeatCadence;
 
     /// <summary>
-    /// §7.6: the rejoin window. It starts on first successful socket bind and send, not on
-    /// process start, because the network stack is routinely unavailable for several
-    /// seconds after resume.
+    /// §7.6: the rejoin window. It starts from the startup state, decided in
+    /// <c>StartupDecision</c>, and the first successful socket bind restarts it.
     /// </summary>
     public TimeSpan QuarantineWindow { get; init; } = TimeSpan.FromSeconds(12);
+
+    /// <summary>
+    /// §7.3: how long after this app's own <c>SetMute</c> an observed divergence is treated
+    /// as its own write echoing rather than as the user's action.
+    /// </summary>
+    /// <remarks>
+    /// This is what stops the self-feedback loop §9.1's decision D-1 is prone to. Measured
+    /// on <see cref="Abstractions.IClock.Elapsed"/> - never wall-clock - like every other interval here.
+    /// </remarks>
+    public TimeSpan SelfChangeSuppression { get; init; } = TimeSpan.FromMilliseconds(250);
 
     /// <summary>
     /// §7.1 (design revision 7): how many unverifiable datagrams within

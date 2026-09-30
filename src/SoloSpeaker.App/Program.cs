@@ -1,7 +1,11 @@
 using System.Windows.Forms;
 using SoloSpeaker.App.Hosting;
+using SoloSpeaker.App.MuteActuator;
 using SoloSpeaker.App.PeerLink;
+using SoloSpeaker.Core.Abstractions;
+using SoloSpeaker.Core.Ledger;
 using SoloSpeaker.Core.StateStore;
+using Windows.Win32;
 
 namespace SoloSpeaker.App;
 
@@ -10,38 +14,38 @@ namespace SoloSpeaker.App;
 /// </summary>
 /// <remarks>
 /// <para>
-/// The launch path is real from work item 6. It acquires the single-instance guard and
-/// replays the mutation ledger (both still no-ops, work items 12 and 7), loads configuration
-/// and state (§7.5), then builds the host, which binds PeerLink and starts the cadence.
+/// Both entry paths - the launch and <c>--restore</c> - acquire ADR 0012's single-instance
+/// guard before touching the mutation ledger. That ordering is the whole point of the ADR:
+/// a second instance replaying the first's ledger would restore an endpoint the first still
+/// believes it holds and clear the record of it, so a later hard kill would strand the mute
+/// with nothing able to repair it.
 /// </para>
 /// <para>
 /// The machine is quarantined from the moment its state is decided, in Core's
-/// <c>StartupDecision</c> - not after binding. §7.6 used to say the window opened on the
-/// first successful bind and send, which could not be implemented: a quarantined machine
-/// broadcasts nothing, so the trigger either never fired, or the first send escaped the
-/// window carrying the persisted <c>(activeOwner, seq)</c> and recreated the lid-open
-/// defect. See design revision 10.
+/// <c>StartupDecision</c>, not after binding - see design revision 10.
 /// </para>
 /// <para>
-/// There is no tray yet, so a successful launch is a headless process whose only graceful
-/// exit is logoff or shutdown. Work item 9 adds the tray and its Exit item; work item 12
-/// adds the shutdown channel <c>install.ps1</c> uses.
+/// There is still no tray, so a successful launch is a headless process whose only graceful
+/// exit is logoff or shutdown. Work item 9 adds the tray and its Exit item; work item 12 adds
+/// the shutdown channel <c>install.ps1</c> uses.
 /// </para>
 /// </remarks>
 internal static class Program
 {
     internal const int ExitNotImplemented = 2;
     internal const int ExitUnpaired = 3;
+    internal const int ExitInstanceRunning = 6;
 
     [STAThread]
     private static int Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
 
-        // --restore is the subcommand that matters: scripts/uninstall.ps1 gates deletion of
-        // the binary and the mutation ledger on its exit code. Reporting success would tell
-        // the uninstaller a mute had been repaired when nothing was repaired at all, so it
-        // still fails loudly until work item 7 implements it.
+        if (args.Length == 1 && string.Equals(args[0], "--restore", StringComparison.Ordinal))
+        {
+            return Restore();
+        }
+
         if (args.Length > 0)
         {
             MessageBox.Show(
@@ -57,13 +61,68 @@ internal static class Program
         return Run();
     }
 
+    private static int Restore()
+    {
+        // A WinExe has no console of its own, so an invoking shell sees nothing. Attaching to
+        // the parent's is what makes --restore's report readable - and uninstall.ps1 reads
+        // both the message and the exit code before deciding whether to delete anything.
+        bool attached = PInvoke.AttachConsole(unchecked((uint)-1));
+
+        var lines = new List<string>();
+
+        int exitCode = RestoreCommand.Run(
+            DataRoot.Resolve(),
+            new FileStore(),
+            new SystemClock(),
+            static () => new WasapiMuteActuator(),
+            message =>
+            {
+                lines.Add(message);
+                Console.WriteLine(message);
+            });
+
+        if (!attached)
+        {
+            // Launched from Explorer or a scheduled task. Say it somewhere the user can see
+            // rather than exiting silently with a code nobody reads.
+            MessageBox.Show(
+                string.Join(Environment.NewLine, lines),
+                "SoloSpeaker --restore",
+                MessageBoxButtons.OK,
+                exitCode == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+
+        return exitCode;
+    }
+
     private static int Run()
     {
         string root = DataRoot.Resolve();
         var clock = new SystemClock();
+        var files = new FileStore();
 
-        var startup = new StartupSequence(new FileStore(), new DpapiSecretProtector(), clock, root);
-        StartupResult result = startup.Run();
+        // Acquired here rather than inside StartupSequence because the handle must outlive
+        // startup: ADR 0012 requires the guard to be held for as long as the app runs.
+        using SingleInstanceGuard guard = SingleInstanceGuard.TryAcquire(root);
+
+        if (!guard.IsHeld)
+        {
+            // Matrix row E8: the second instance touches nothing - no ledger write, no
+            // endpoint change. Work item 12 adds the balloon.
+            MessageBox.Show(
+                "SoloSpeaker is already running.",
+                "SoloSpeaker",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+
+            return ExitInstanceRunning;
+        }
+
+        using IMuteActuator actuator = new WasapiMuteActuator();
+        var ledger = new JsonLedger(files, DataRoot.PathFor(root, PersistedFiles.Ledger), clock);
+
+        var startup = new StartupSequence(files, new DpapiSecretProtector(), clock, root, ledger, actuator);
+        StartupResult result = startup.Run(guard);
 
         if (!result.IsPaired)
         {
@@ -81,7 +140,7 @@ internal static class Program
 
         JsonConfigStore config = result.Config!;
         var stateStore = new JsonStateStore(
-            new FileStore(), DataRoot.PathFor(root, PersistedFiles.State), config.PairId);
+            files, DataRoot.PathFor(root, PersistedFiles.State), config.PairId);
 
         using var window = new HostWindow();
         using var host = new SoloSpeakerHost(
@@ -91,7 +150,9 @@ internal static class Program
             clock,
             result.State,
             result.Cause,
-            TransportEndpoint.Exclusive(config.Port));
+            TransportEndpoint.Exclusive(config.Port),
+            ledger,
+            actuator);
 
         host.Start();
 

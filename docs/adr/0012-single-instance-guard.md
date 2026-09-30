@@ -29,6 +29,15 @@ from the resolved data root so two instances with different roots do not contend
 two-instance UDP harness depends on it. Work item 12 still ships acquisition, the tray
 balloon, the non-zero exit code, and the shutdown channel.
 
+**Amendment - work item 7, 2026-09-30.** Work item 7 now ships mutex acquisition whole:
+both the launch path and `--restore`. Work item 7 implements ledger replay at startup, so a
+second launch would otherwise replay and clear the first instance's ledger while that
+instance still holds a live mute, leaving the mute with no recovery record. That is exactly
+the scenario this ADR's Context describes, and manual matrix row E8 exists to prove it. One
+mutex acquisition is a single invariant and gets a single site. Work item 12 still owns the
+tray balloon, the documented exit-code UX, the shutdown channel, and packaging - all of
+which need a tray that does not exist yet.
+
 **The guard is acquired before ledger replay, not after.** This ordering is the whole
 point of the record. §7.3 requires ledger replay to run "on every startup, before anything
 else", but a second instance starting while the first has legitimately muted an endpoint

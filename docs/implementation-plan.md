@@ -281,10 +281,14 @@ byte-identical to "the peer is switched off."
 failure modes need to be tested rather than assumed. §10's recovery block covers the happy
 path and the `state.json`-deleted case; these are added:
 
-- ledger present and valid -> endpoints restored to `priorMute`, entries cleared
+- ledger present and valid, and restores succeed -> `priorMute: false` entries are
+  unmuted, `priorMute: true` entries are logged and cleared without a mute write, and all
+  entries are cleared
 - ledger describes a mute that never happened -> restore is a no-op, entry cleared
 - ledger is corrupt JSON -> `error` raised, app still starts, nothing is muted
 - ledger names an endpoint that no longer exists -> entry cleared, no `error`
+- ledger names an endpoint that exists but whose restore fails -> the entry is retained,
+  `--restore` exits non-zero, and `error` is raised
 - ledger written but process killed before `SetMute` -> next start is a clean no-op
 - `state.json` temp file present but replace never happened -> previous state intact
 - `config.json` and `state.json` carry different `pairId` -> `error`, not silent tolerance
@@ -476,12 +480,12 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 | 4 | Two-node in-process harness | All of §4.3 green |
 | 5 | `StateStore` + `ConfigStore` over `IFileStore`, atomic write, cross-file `pairId` check, **DPAPI `ISecretProtector`** | §4.5's state rows green in Core, including the restart scenario over the real store. `App.Tests` proves DPAPI **fails closed** - a wrong entropy and a corrupted ciphertext both return `false` rather than throwing. The cross-profile case itself is manual row E10: a test process cannot protect data as another Windows profile, and DPAPI surfaces both through the same failure route |
 | 6 | `PeerLink` over real UDP, including `bye` on graceful exit and its three receipt rules | Two instances on one host, separate config roots, and one port with `SO_REUSEADDR`, exchange state; a `bye` clears presence without moving `activeOwner` |
-| 7 | `MuteActuator` + `Ledger` over `IFileStore` + `--restore` + `IMMNotificationClient` | §4.5's ledger rows green in Core; headset swap re-targets by hand |
+| 7 | `MuteActuator` + `Ledger` over `IFileStore` + `--restore` + `IMMNotificationClient` + mutex acquisition | §4.5's ledger rows green in Core; headset swap re-targets by hand; same-root launch and `--restore` take the guard before ledger replay |
 | 8 | **Logging** (ADR 0015), with per-minute ingress-drop aggregation | Ownership changes name their source; a version mismatch is distinguishable from an absent peer |
 | 9 | Tray: five states, **icons** (ADR 0014), named producers, hotkey, sticky `error` | Every state reachable and observed; registration failure raises `error` |
 | 10 | Pairing ceremony (ADR 0011), including pairing-mode ingress exception | Two machines paired from scratch; fingerprints match |
 | 11 | Quarantine: cold start, resume, network-change restart | Lid-open does not move the mute |
-| 12 | **Single-instance guard** (ADR 0012), a real shutdown channel so the scripts can stop a tray app, then packaging: publish, install, uninstall, logon task | Second launch exits without touching the ledger; `install.ps1` upgrades over a running instance without throwing; clean install -> reboot -> still working -> clean uninstall |
+| 12 | **Single-instance UX** (ADR 0012), a real shutdown channel so the scripts can stop a tray app, then packaging: publish, install, uninstall, logon task | Second launch reports visibly; `install.ps1` upgrades over a running instance without throwing; clean install -> reboot -> still working -> clean uninstall |
 | 13 | Manual matrix sign-off | [`manual-test-matrix.md`](manual-test-matrix.md) fully signed |
 
 Step 6 is worth a note: a good deal of PeerLink can be exercised on one machine by running

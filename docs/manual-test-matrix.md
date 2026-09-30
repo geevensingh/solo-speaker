@@ -66,6 +66,10 @@ someone "helpfully" making it a function of current conditions.
 
 ## D. Audio endpoints and the ledger
 
+Work item 7 makes the audio and ledger assertions in this section signable. D9 is signable
+for "nothing is removed" and the non-zero exit; the exact user-facing message waits for the
+row 9 tray/error copy.
+
 | # | Steps | Expected | Result | Notes |
 |---|---|---|---|---|
 | D1 | While `D` is muted, swap `D` from speakers to a USB/Bluetooth headset | New endpoint is muted; **the old endpoint is released**, not left stranded | | |
@@ -76,12 +80,16 @@ someone "helpfully" making it a function of current conditions.
 | D6 | Relaunch after D5 | Ledger replay restores audio on startup | | |
 | D7 | Repeat D5, then run `SoloSpeaker.exe --restore` instead of relaunching | Audio restored; app does not start | | |
 | D8 | Repeat D5, then run `scripts\uninstall.ps1` | Audio restored before the binary is deleted; script reports success | | |
-| D9 | Make `--restore` fail (corrupt the ledger), then run `uninstall.ps1` | **Nothing is removed.** Binary and `ledger.json` both survive, exit code is non-zero, and the message names the repair command. This is the Goal 1 branch | | |
+| D9 | Make `--restore` fail (corrupt the ledger), then run `uninstall.ps1` | **Nothing is removed.** Binary and `ledger.json` both survive, exit code is non-zero, and the message names the repair command. This is the Goal 1 branch | | Row 7 signs the refusal and retained files; exact message text waits for row 9 |
 | D10 | Repeat D9 with `-Force` | Removal proceeds, with a warning telling you to confirm audio by hand | | |
 | D11 | While `D` is muted, pull its power | On next boot, ledger replay restores audio | | |
 | D12 | Plug in a second render device and route audio to it while muted | Second device stays audible. Accepted per §9.2-4; confirm it is not *also* muted | | |
 
 ## E. Failure and error states
+
+Work item 7 makes E5, E7, E8's no-touch guard, and E9 signable. E1's sticky `error` can be
+signed once the tray exists in row 9; its balloon text is a row 9 UI check. E8's balloon
+remains the ADR 0012 UX work in row 12, so the row 7 sign-off is the no-touch guard.
 
 | # | Steps | Expected | Result | Notes |
 |---|---|---|---|---|
@@ -92,8 +100,8 @@ someone "helpfully" making it a function of current conditions.
 | E5 | Corrupt `ledger.json` with invalid JSON, restart | `error` raised; app still starts; nothing muted | | |
 | E6 | Acknowledge an `error`, then trigger a different one | Tooltip names the *new* specific cause | | |
 | E7 | Disable the audio endpoint in Sound settings while running | `error` on enumeration failure; no crash | | |
-| E8 | Launch a second copy by hand while one is already running | Second exits with a balloon and **touches nothing** - no ledger write, no endpoint change. Verify by muting first, then launching, then confirming the mute survives | | |
-| E9 | Run `--restore` while an instance is running | Refuses with "SoloSpeaker is running; exit it first". Does not replay the live ledger | | |
+| E8 | Launch a second copy by hand while one is already running | Second exits with a balloon and **touches nothing** - no ledger write, no endpoint change. Verify by muting first, then launching, then confirming the mute survives | | Row 7 signs the no-touch guard; the balloon waits for ADR 0012's row 12 UX |
+| E9 | Run `--restore` while an instance is running | Refuses with "SoloSpeaker is running; exit it first". Does not replay the live ledger | | Manual-run guard: `uninstall.ps1` never force-kills the instance, so the script-driven path cannot reach the contested-mutex case |
 | E10 | Copy `config.json` to a second Windows user profile and start there | `error` with a re-pair cause. No crash, no silent fallback to an unprotected key | | |
 
 ## F. Network and hostile input

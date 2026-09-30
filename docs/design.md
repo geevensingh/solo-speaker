@@ -1,8 +1,36 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 10 - fixes the PeerLink transport and rejoin contradictions row 6 surfaced; revision 9 settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 11 - makes the first real audio mutation fail-audible; revision 10 fixes the PeerLink transport and rejoin contradictions row 6 surfaced; revision 9 settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 11 changes, 2026-09-30.** Three amendments from the row 7 review land before
+> the first code path that can touch real audio state. The rejected alternatives all fail
+> in the same direction: they can leave a machine muted while the program that should repair
+> it believes there is nothing left to do.
+>
+> **§7.3's reconciler now has a completed table.** The old text was not contradictory: the
+> general rule was "correct drift", and D-1's exception was "external unmute is a claim".
+> But it left the edges around that exception undefined, and a plausible implementation
+> keyed the unmute branch on "actual equals what we last wrote" rather than on `desired`.
+> That turns an ordinary peer departure into a permanent mute. The table names the invariant
+> instead: only the divergence that makes a machine more audible is a claim; every other
+> row runs toward audible or leaves someone else's pre-existing mute alone. The 250 ms
+> self-write window is measured on `IClock.Elapsed`, not wall-clock.
+>
+> **Ledger replay is an unmute path, not a faithful restore path.** A ledger entry may say
+> `priorMute: true` because the user had already muted the endpoint before we touched it.
+> Replaying that by calling `SetMute(true)` would let `--restore` mute the machine, exit
+> zero, and then let the uninstaller delete both the binary and the ledger. The product now
+> has one muting path: the reconciler acting on a live `shouldMute`. Replay discards and
+> clears `priorMute: true` entries with a log line. That gives up restoring the user's own
+> prior mixer setting, but Goal 1 outranks fidelity to a visible setting the user can change.
+>
+> **A failed mute or unmute is now a first-class error producer.** Treating "endpoint gone"
+> and "write failed" as the same boolean made the highest-consequence case - a failed
+> unmute - look like success. `MuteApplyFailed` is an edge cause, and a ledger entry whose
+> restore did not succeed is never cleared. "Gone" means absent from enumeration entirely;
+> an unplugged-but-retained headset is still a thing we owe a repair to.
 
 > **Revision 10 changes, 2026-09-29.** Two amendments from the row 6 review settle
 > PeerLink's real-socket edge cases before UDP ships.
@@ -650,32 +678,80 @@ fallback if WASAPI enumeration proves unreliable for some app.
 - Reconcile every tick: if actual mute state != desired, correct it.
 - Subscribe to `IMMNotificationClient` for default-device changes so switching headset <->
   speakers re-applies the desired state to the new endpoint, and so the *previous* endpoint
-  is released (see ledger below).
+  is released (see ledger below). The handler filters to the `(eRender, eMultimedia)` role
+  pair. The notification fires for render and capture endpoints across console, multimedia
+  and communications roles; a soft-phone routinely changes the communications role, and
+  acting on that as if the default speaker changed would release and re-acquire the same
+  endpoint, producing two ledger writes and a brief audible blip.
 
 **The mutation ledger.** This app mutates sticky, OS-global, reboot-surviving state.
 Revision 1 recorded nothing about those mutations, which made an orphaned muted endpoint a
 certainty of ordinary use rather than an edge case, and left no way to recover one after
 the app was gone. Every endpoint this app has muted is therefore recorded, before the
-mutation, to `%LOCALAPPDATA%\SoloSpeaker\ledger.json`:
+mutation, to `%LOCALAPPDATA%\SoloSpeaker\ledger.json`. The ledger document is an array of
+entries plus a `schema` field, serialized by the same persistence convention as the other
+persisted files:
 
 ```json
-{ "endpointId": "{0.0.0.00000000}.{9c8...}", "priorMute": false, "mutedAtUtc": "..." }
+{
+  "schema": 1,
+  "entries": [
+    { "endpointId": "{0.0.0.00000000}.{9c8...}", "priorMute": false, "mutedAtUtc": "..." }
+  ]
+}
 ```
 
 - Written **before** `SetMute`, flushed to disk, then the mutation is applied. An entry may
   therefore describe a mute that never happened; that is the safe direction.
-- Cleared per-endpoint when this app restores that endpoint.
-- **On every startup, before anything else**, the ledger is replayed: any endpoint still
-  listed is restored to `priorMute` and cleared. This is what makes a hard-kill recoverable
-  - the next launch repairs it without the user knowing anything was wrong.
-- The app ships a `--restore` switch that replays and clears the ledger without starting
-  the service, and the uninstaller invokes it. This is the uninstall path revision 1 lacked.
+- Cleared per-endpoint only when this app successfully releases that endpoint, or when the
+  endpoint is genuinely gone.
+- **On every startup, before anything else**, the ledger is replayed as an unmute path. An
+  entry with `priorMute: false` causes an unmute and is cleared on success. An entry with
+  `priorMute: true` is logged, discarded and cleared without calling `SetMute(true)`.
+  Faithfully restoring that value would let `--restore` mute a machine, report success, and
+  then let the uninstaller delete the only repair record. The user's own prior mute is not
+  restored by us, but we also never unmute below their baseline in any other path, and Goal
+  1 outranks fidelity to a setting the user can see and change in the volume mixer. Because
+  the manual-claim row below clears the entry when we cede a mute, a stale
+  `priorMute: true` entry cannot survive to replay as a command either.
+- An entry whose restore did not succeed is never cleared - not during replay, and not
+  during a device change. If the endpoint exists but the write fails, `MuteApplyFailed` is
+  raised, `--restore` exits non-zero, and the entry stays. Distinguishing that from "gone"
+  is load-bearing: gone means absent from enumeration entirely, not merely unplugged. An
+  unplugged-but-retained headset is not gone, and clearing its entry is what would strand it.
+- The app ships a `--restore` switch that replays the ledger and clears only successful
+  entries without starting the service, and the uninstaller invokes it. This is the
+  uninstall path revision 1 lacked.
+
+For every other persisted file, "refuse and raise error" is the Goal 1 direction because a
+refused `state.json` or `config.json` leaves a machine audible. `ledger.json` is the one
+asymmetry: refusing a half-understood ledger is still correct, because guessing is worse,
+but refusal is not automatically safe because it can leave a stranded mute unrepaired. That
+is why the corrupt-ledger test also demands "nothing is muted".
+
+The guarantee that falls out is stronger than "restore usually works": no code path in
+this product mutes anything except the reconciler acting on a live `shouldMute`.
 
 **Manual override.** Per the §9 decision, an external unmute of a *muted-by-us* endpoint is
-treated as a manual claim (§7.4), not as drift to be corrected. The reconciler distinguishes
-external changes from its own by comparing against the last value it wrote and ignoring
-change notifications within 250 ms of its own `SetMute`, which prevents the self-feedback
-loop this option is prone to.
+treated as a manual claim (§7.4), not as drift to be corrected. The completed reconcile
+table is:
+
+| Case | Action |
+|---|---|
+| `actual == desired` | Do nothing. |
+| The endpoint's actual mute state is unreadable | Raise endpoint-enumeration error, take no action, and never derive a manual claim from it. A claim must be evidence of a user action, never of an I/O failure. |
+| The machine is in the §7.6 quarantine window | `desired` is unmuted by construction, so this falls to the first row or to the unmute row below. Quarantine is never a claim source. |
+| `desired = unmuted`, `actual = muted`, and the ledger says we own the mute | Unmute, always. No timing gate, no exception. This is Goal 1's direction and nothing may suppress it. |
+| `desired = muted`, `actual = unmuted`, we last wrote muted, and the write is less than 250 ms old | Do nothing; this is our own write echoing back. |
+| `desired = muted`, `actual = unmuted`, we last wrote muted, and the write is 250 ms old or older | Treat it as a manual claim (D-1), clear the ledger entry because we are ceding the mute, and do not re-mute. |
+| `desired = muted`, `actual = muted`, but the ledger holds no entry for it | Leave it alone. Someone else's mute is not ours to own. |
+
+The ordinary acquire path remains the general rule: when desired is muted, actual is
+unmuted, the difference is not a self-write echo, and the external-unmute rule does not
+apply, write the ledger and mute. The organising principle is that the only divergence
+treated as a claim is the one that makes a machine more audible. Everything else runs
+toward audible or leaves a pre-existing state alone. The 250 ms age is measured on the
+monotonic clock (`IClock.Elapsed`), never wall-clock.
 
 ### 7.4 Manual claim - hotkey and tray
 
@@ -699,7 +775,7 @@ loop this option is prone to.
 | `unclaimed` | `activeOwner == MachineId.None` and a peer is present - nobody has claimed yet, so both machines are audible *(revision 7)* |
 | `alone` | no peer heartbeat within the presence window |
 | `quarantine` | §7.6 rejoin window, state not yet reconciled |
-| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded, **on the wire or on disk**; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; `config.json` unreadable on this profile; **a `pairKey` the configuration store refuses** (§7.5); **a persisted file whose `schema` this build does not recognise**; **a tunable field that failed validation and fell back to its default**; **`TransportUnavailable` - the socket could not be bound, or lost the network and has not been re-bound** |
+| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded, **on the wire or on disk**; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; **`MuteApplyFailed` - applying a mute or unmute to an endpoint that exists failed**; `config.json` unreadable on this profile; **a `pairKey` the configuration store refuses** (§7.5); **a persisted file whose `schema` this build does not recognise**; **a tunable field that failed validation and fell back to its default**; **`TransportUnavailable` - the socket could not be bound, or lost the network and has not been re-bound** |
 
 `activeOwner == MachineId.None` is the ordinary pre-claim state of §5 and is **never** an
 `error` cause. *(revision 7)* It gets its own state rather than being folded into `active`
@@ -720,6 +796,12 @@ observability, not the Goal 1 safety rule: a deaf machine cannot establish prese
 §5.5 predicate keeps it audible, but without the cause the tray shows an ordinary state
 while the machine cannot hear its peer.
 
+`MuteApplyFailed` is the actuator's producer, added in row 7. It is raised when applying a
+mute or unmute to an endpoint that exists failed. It is an edge cause: it latches until
+acknowledged, because the failed write has already happened and is not re-derived from the
+current state. A missing endpoint is not this cause; §7.3 treats an endpoint absent from
+enumeration as a cleared ledger entry.
+
 `error` precedence: where several causes hold at once, the tooltip names the **first raised**
 and keeps it until acknowledged. Causes divide into two kinds, and they are acknowledged
 differently. **Continuous** causes - `activeOwner` outside the roster, roster incomplete
@@ -729,8 +811,8 @@ true until the condition itself changes and **cannot be acknowledged while they 
 true**, because acknowledging one would clear the tray while the machine sits in exactly
 the condition the `error` exists to expose. **Edge** causes - hotkey registration failure,
 `seq` bound exceeded, unknown `v`, sustained unverifiable traffic, ledger replay failure,
-endpoint enumeration failure, a failed state write, a tunable that fell back to its
-default - latch until acknowledged.
+endpoint enumeration failure, `MuteApplyFailed`, a failed state write, a tunable that fell
+back to its default - latch until acknowledged.
 
 *(revision 9)* Only one continuous cause - `activeOwner` outside the roster - is derivable
 by the state machine from its own state. The rest are asserted by the component that owns

@@ -109,6 +109,19 @@ public enum ErrorCause
     /// silent", and without this member row 6's own failure mode had no producer.
     /// </remarks>
     TransportUnavailable,
+
+    /// <summary>
+    /// §7.3: applying a mute or unmute to an endpoint that exists failed. Edge. Raised at
+    /// row 7.
+    /// </summary>
+    /// <remarks>
+    /// Added in design revision 11. A failed <em>unmute</em> is the highest-consequence
+    /// runtime event this product has, and it had no cause at all: the actuator seam
+    /// returned one <see langword="bool"/> that meant "the endpoint is gone", so a genuine
+    /// write failure was counted as a cleared entry and <c>--restore</c> reported success
+    /// over a machine that was still muted.
+    /// </remarks>
+    MuteApplyFailed,
 }
 
 /// <summary>Classification helpers for <see cref="ErrorCause"/>.</summary>

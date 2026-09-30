@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using SoloSpeaker.Core.Abstractions;
+using SoloSpeaker.Core.MuteActuator;
 using SoloSpeaker.Core.PeerLink.Wire;
 using SoloSpeaker.Core.StateMachine;
 
@@ -28,9 +29,24 @@ public sealed class EffectExecutor
     private readonly IConfigStore _config;
     private readonly IStateStore _stateStore;
     private readonly IPeerTransport _transport;
+    private readonly MuteReconciler? _reconciler;
 
-    /// <summary>Creates an executor over the four seams an effect can reach.</summary>
-    public EffectExecutor(IClock clock, IConfigStore config, IStateStore stateStore, IPeerTransport transport)
+    /// <summary>Creates an executor over the seams an effect can reach.</summary>
+    /// <param name="clock">The monotonic clock. §5.4 orders by event count, never by time.</param>
+    /// <param name="config">The roster and the pairing secret.</param>
+    /// <param name="stateStore">§7.5's persisted latch.</param>
+    /// <param name="transport">§7.1's datagram transport.</param>
+    /// <param name="reconciler">
+    /// Step three of the per-cycle contract, filled by work item 7. Optional because the
+    /// two-node harness exercises arbitration without an audio device; when it is absent,
+    /// actuation is simply not reconciled.
+    /// </param>
+    public EffectExecutor(
+        IClock clock,
+        IConfigStore config,
+        IStateStore stateStore,
+        IPeerTransport transport,
+        MuteReconciler? reconciler = null)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(config);
@@ -41,7 +57,19 @@ public sealed class EffectExecutor
         _config = config;
         _stateStore = stateStore;
         _transport = transport;
+        _reconciler = reconciler;
     }
+
+    /// <summary>
+    /// Raised when a reconcile concluded that the user unmuted an endpoint this app had
+    /// muted, which §9.1's decision D-1 treats as a manual claim.
+    /// </summary>
+    /// <remarks>
+    /// An event rather than a direct post because the reducer is mid-reduction when this
+    /// fires. The host queues the claim through its dispatch, so the follow-up is a
+    /// subsequent cycle rather than a re-entrant one.
+    /// </remarks>
+    public event Action? ExternalUnmuteObserved;
 
     /// <summary>
     /// Runs the effects in the order the reducer produced them.
@@ -77,6 +105,37 @@ public sealed class EffectExecutor
         }
 
         return cause;
+    }
+
+    /// <summary>
+    /// Step three of the per-cycle contract: make the audio endpoint match what §5.5 just
+    /// derived.
+    /// </summary>
+    /// <remarks>
+    /// Here rather than in the host because this type exists to keep the orderings in one
+    /// place - §5.1 orders the persist before the send, §7.3 orders the ledger write before
+    /// the mutation - and because <c>SoloSpeaker.Core.Tests</c> is what mutation-tests the
+    /// reconcile table. "Composed alongside the cycle, never into it" is satisfied by
+    /// injection: the reconciler arrives through the constructor exactly as
+    /// <see cref="IPeerTransport"/> does, while the COM that touches the device stays in
+    /// <c>SoloSpeaker.App</c>.
+    /// </remarks>
+    /// <returns>A cause to raise, or <see cref="ErrorCause.None"/>.</returns>
+    public ErrorCause Reconcile(bool shouldMute)
+    {
+        if (_reconciler is null)
+        {
+            return ErrorCause.None;
+        }
+
+        ReconcileOutcome outcome = _reconciler.Reconcile(shouldMute);
+
+        if (outcome.Claim)
+        {
+            ExternalUnmuteObserved?.Invoke();
+        }
+
+        return outcome.Cause;
     }
 
     /// <summary>

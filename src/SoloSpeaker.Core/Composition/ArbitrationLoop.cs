@@ -97,6 +97,17 @@ public sealed class ArbitrationLoop : IProximitySource
 
         ErrorCause executionFault = _executor.Execute(result.Effects);
 
+        // Step three of the per-cycle contract. It follows the effect drain because §5.5's
+        // predicate is derived from the state the drain just persisted and broadcast, and it
+        // runs on every reduction rather than only on ticks - a peer claim must not leave
+        // this machine audible for up to a full cadence after it should have gone quiet.
+        ErrorCause actuationFault = _executor.Reconcile(result.ShouldMute);
+
+        if (executionFault == ErrorCause.None)
+        {
+            executionFault = actuationFault;
+        }
+
         if (executionFault != ErrorCause.None)
         {
             // Re-entered as an ordinary event so the tray reports it through the one path

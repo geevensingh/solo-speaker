@@ -31,10 +31,20 @@ public interface ILedger
     void Clear(string endpointId);
 
     /// <summary>
-    /// Replays every entry still listed, restoring each endpoint to its recorded
-    /// <c>priorMute</c> and clearing it. Runs on startup before anything else this
-    /// instance is entitled to do, and is the whole of what <c>--restore</c> performs.
+    /// Replays every entry still listed, restoring each endpoint and clearing it. Runs on
+    /// startup before anything else this instance is entitled to do, and is the whole of
+    /// what <c>--restore</c> performs.
     /// </summary>
+    /// <remarks>
+    /// <b>Replay only ever unmutes</b> - design revision 11. An entry may carry
+    /// <c>priorMute: true</c>, and restoring that faithfully would mean muting an endpoint
+    /// from the repair path: <c>--restore</c> could silence a machine, count it restored,
+    /// exit zero, and have <c>uninstall.ps1</c> delete the binary and the ledger behind it.
+    /// §7.6 lists replay among the <em>unmute</em> paths, so a <c>priorMute: true</c> entry
+    /// is discarded and cleared rather than re-applied. The guarantee that buys is worth
+    /// naming: no code path in this product mutes anything except the reconciler acting on
+    /// a live <c>shouldMute</c>.
+    /// </remarks>
     /// <returns>
     /// The outcome. A corrupt ledger raises <see cref="TrayState.Error"/> and the app still
     /// starts with nothing muted; an entry naming an endpoint that no longer exists is
@@ -45,9 +55,21 @@ public interface ILedger
 
 /// <summary>Outcome of <see cref="ILedger.Replay"/>.</summary>
 /// <param name="Restored">Endpoints returned to their recorded prior state.</param>
-/// <param name="Skipped">Entries naming an endpoint that no longer exists.</param>
+/// <param name="Skipped">
+/// Entries naming an endpoint that no longer exists, plus entries discarded because their
+/// <c>priorMute</c> was <see langword="true"/>. Both are cleared and neither is an error.
+/// </param>
+/// <param name="Unrepaired">
+/// Entries whose endpoint exists but whose restore failed. These are <b>retained</b>, raise
+/// <see cref="StateMachine.ErrorCause.MuteApplyFailed"/>, and make <c>--restore</c> exit non-zero so that
+/// <c>uninstall.ps1</c> refuses to delete the two things capable of repairing the mute.
+/// </param>
 /// <param name="Failed">
 /// <see langword="true"/> if the ledger could not be read or parsed, which raises
 /// <see cref="TrayState.Error"/>. The app still starts, and nothing is muted.
 /// </param>
-public readonly record struct LedgerReplayResult(int Restored, int Skipped, bool Failed);
+public readonly record struct LedgerReplayResult(int Restored, int Skipped, int Unrepaired, bool Failed)
+{
+    /// <summary>Whether the ledger is fully discharged and safe to delete alongside.</summary>
+    public bool IsClean => !Failed && Unrepaired == 0;
+}

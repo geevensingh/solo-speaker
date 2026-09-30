@@ -143,6 +143,11 @@ Constraints that come from the design and are not open questions:
   filesystem paths, process lifetime, the single-instance guard - lives in
   `SoloSpeaker.App`. Actuation, ledger replay, hotkey registration, tray rendering
   and pairing are composed *alongside* the cycle in the host, never *into* it.
+  "Alongside" is satisfied by injection, not by relocation: `EffectExecutor`
+  already holds `IPeerTransport` as an injected seam while the socket itself
+  lives in `SoloSpeaker.App`, and actuation follows the same shape - the
+  reconciler is a Core type injected into the executor, while the COM that
+  touches the device stays in App.
   Without that sentence every later work item has a default answer, and the default
   is "add it to the loop". Row 6 adds the successor risk: the default becomes
   "add it to the host". `SoloSpeakerHost` owns exactly three things: process

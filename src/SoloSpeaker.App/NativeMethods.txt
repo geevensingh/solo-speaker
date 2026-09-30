@@ -11,6 +11,10 @@ MMDeviceEnumerator
 EDataFlow
 ERole
 DEVICE_STATE
+// DEVICE_STATE matters more than it looks. 7.3 says an entry whose endpoint is *gone* is
+// cleared without an error, and a retained-but-unplugged headset is NOT gone - clearing its
+// entry is what strands it across manual rows D1 and D2. Enumerating with UNPLUGGED and
+// NOTPRESENT included is how the two cases stay distinguishable.
 
 // --- MicWatcher (design.md 7.2) ---
 IAudioSessionManager2
@@ -34,3 +38,17 @@ PostMessage
 // Rejoin quarantine (design.md 7.6) needs network-change notifications to restart the
 // window. That comes from System.Net.NetworkInformation.NetworkChange in the BCL, not
 // from interop, so there is deliberately no entry for NotifyAddrChange here.
+
+// --- RestoreCommand (design.md 7.3, work item 7) ---
+// SoloSpeaker.exe is a WinExe, so it has no console and an invoking shell sees nothing at
+// all. uninstall.ps1 reads both the message and the exit code before deciding whether to
+// delete the binary and the ledger, so --restore has to be able to speak.
+AttachConsole
+ATTACH_PARENT_PROCESS
+
+// --- FileStore durability (design.md 7.3, work item 7) ---
+// Flushing the file buys ordering; the rename itself is logged lazily by NTFS, so the
+// directory entry needs its own flush. System.IO cannot open a directory handle, which is
+// why this is interop rather than a FileStream.
+FlushFileBuffers
+CreateFile

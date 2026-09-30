@@ -27,6 +27,22 @@ public interface IFileStore
     /// Writes atomically - temp file plus replace, never an in-place rewrite - so that a
     /// crash mid-write cannot leave a truncated latch or a half-written ledger.
     /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Also durable</b>, as of design revision 11. The contents must be on stable storage
+    /// before the replace publishes them, and the replace itself must be flushed before this
+    /// returns. The guarantee lives on the seam rather than inside one implementation so a
+    /// fake has to model it, and because §7.3 states it as a requirement: the ledger entry is
+    /// "written before <c>SetMute</c>, flushed to disk, then the mutation is applied".
+    /// </para>
+    /// <para>
+    /// Atomicity alone is not enough for the ledger. Ordering is what makes §7.3's "an entry
+    /// may describe a mute that never happened" the safe direction; without the flush a
+    /// power cut inside the write-back window - matrix row D11 pulls the power - loses the
+    /// entry while the mute itself survives in the audio stack, which is a stranded mute
+    /// with no record and nothing able to repair it.
+    /// </para>
+    /// </remarks>
     void WriteAtomic(string path, ReadOnlySpan<byte> contents);
 
     /// <summary>Deletes a file. Succeeds silently if it is already absent.</summary>

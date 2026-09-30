@@ -1,4 +1,7 @@
+using Microsoft.Win32.SafeHandles;
 using SoloSpeaker.Core.Abstractions;
+using Windows.Win32;
+using Windows.Win32.Storage.FileSystem;
 
 namespace SoloSpeaker.App;
 
@@ -50,7 +53,7 @@ public sealed class FileStore : IFileStore
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllBytes(pending, contents);
+        WriteDurable(pending, contents);
 
         if (File.Exists(path))
         {
@@ -61,6 +64,69 @@ public sealed class FileStore : IFileStore
         else
         {
             File.Move(pending, path);
+        }
+
+        FlushDirectory(directory);
+    }
+
+    /// <summary>
+    /// Writes and forces the bytes to stable storage before the handle closes.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="File.WriteAllBytes(string, byte[])"/> cannot do this: it opens, writes and
+    /// closes, and closing only flushes to the OS cache. The distinction is the whole of the
+    /// ledger's crash-recovery guarantee - §7.3 records an intent "before <c>SetMute</c>,
+    /// flushed to disk, then the mutation is applied", and manual row D11 pulls the power
+    /// while muted. An entry lost in the write-back window leaves a mute the audio stack
+    /// still remembers and no record that anyone made it.
+    /// </remarks>
+    private static void WriteDurable(string path, ReadOnlySpan<byte> contents)
+    {
+        using var stream = new FileStream(
+            path, FileMode.Create, FileAccess.Write, FileShare.None, bufferSize: 4096, FileOptions.WriteThrough);
+
+        stream.Write(contents);
+        stream.Flush(flushToDisk: true);
+    }
+
+    /// <summary>
+    /// Forces the directory entry created by the rename to stable storage.
+    /// </summary>
+    /// <remarks>
+    /// Flushing the file is necessary but not sufficient. It buys <em>ordering</em> - the
+    /// bytes precede the name that publishes them - but NTFS logs the rename itself lazily,
+    /// so a power cut just after <c>File.Replace</c> returns can still lose it. This
+    /// closes that window. It is best-effort: a directory handle is not obtainable on every
+    /// filesystem, and failing to flush is not a reason to fail the write that succeeded.
+    /// </remarks>
+    private static void FlushDirectory(string? directory)
+    {
+        if (string.IsNullOrEmpty(directory))
+        {
+            return;
+        }
+
+        try
+        {
+            using SafeFileHandle handle = PInvoke.CreateFile(
+                directory,
+                0x40000000u,
+                FILE_SHARE_MODE.FILE_SHARE_READ | FILE_SHARE_MODE.FILE_SHARE_WRITE,
+                lpSecurityAttributes: null,
+                FILE_CREATION_DISPOSITION.OPEN_EXISTING,
+                FILE_FLAGS_AND_ATTRIBUTES.FILE_FLAG_BACKUP_SEMANTICS,
+                hTemplateFile: null);
+
+            if (!handle.IsInvalid)
+            {
+                PInvoke.FlushFileBuffers(handle);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 

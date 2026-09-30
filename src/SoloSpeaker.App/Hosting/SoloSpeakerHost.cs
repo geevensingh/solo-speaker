@@ -1,6 +1,8 @@
+using SoloSpeaker.App.MuteActuator;
 using SoloSpeaker.App.PeerLink;
 using SoloSpeaker.Core.Abstractions;
 using SoloSpeaker.Core.Composition;
+using SoloSpeaker.Core.MuteActuator;
 using SoloSpeaker.Core.StateMachine;
 using SoloSpeaker.Core.StateStore;
 
@@ -39,6 +41,9 @@ public sealed class SoloSpeakerHost : IDisposable
     private readonly EventDispatch _dispatch;
     private readonly HeartbeatPump _pump;
     private readonly ShutdownSequence _shutdown;
+    private readonly EndpointWatcher _endpointWatch;
+    private readonly IMuteActuator _actuator;
+    private readonly MuteReconciler _reconciler;
 
     private bool _disposed;
 
@@ -58,6 +63,8 @@ public sealed class SoloSpeakerHost : IDisposable
         ArbitrationState initialState,
         ErrorCause startupCause,
         TransportEndpoint endpoint,
+        ILedger ledger,
+        IMuteActuator actuator,
         ArbitrationTunables? tunables = null)
     {
         ArgumentNullException.ThrowIfNull(window);
@@ -65,13 +72,17 @@ public sealed class SoloSpeakerHost : IDisposable
         ArgumentNullException.ThrowIfNull(stateStore);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(initialState);
+        ArgumentNullException.ThrowIfNull(ledger);
+        ArgumentNullException.ThrowIfNull(actuator);
 
         ArbitrationTunables resolved = tunables ?? ArbitrationTunables.Default;
 
         _window = window;
         _transport = new UdpPeerTransport(endpoint);
+        _actuator = actuator;
 
-        var executor = new EffectExecutor(clock, config, stateStore, _transport);
+        _reconciler = new MuteReconciler(actuator, ledger, clock, resolved);
+        var executor = new EffectExecutor(clock, config, stateStore, _transport, _reconciler);
         var loop = new ArbitrationLoop(clock, config, executor, initialState, resolved);
 
         _dispatch = new EventDispatch(loop, window);
@@ -80,10 +91,15 @@ public sealed class SoloSpeakerHost : IDisposable
         // cannot disagree about what the cadence is.
         _pump = new HeartbeatPump(_dispatch, resolved);
 
-        var departure = new DepartureAnnouncer(_dispatch, executor);
-        _shutdown = new ShutdownSequence(_pump, departure, _dispatch);
+        // Constructed after the dispatch because its callback posts to it, and before the
+        // shutdown sequence because that sequence must be able to stop it.
+        _endpointWatch = new EndpointWatcher(OnDefaultRenderChanged);
 
-        WireParticipants(startupCause);
+        var departure = new DepartureAnnouncer(_dispatch, executor);
+        _shutdown = new ShutdownSequence(
+            _pump, departure, _dispatch, _endpointWatch.Dispose, ledger, actuator);
+
+        WireParticipants(executor, startupCause);
     }
 
     /// <summary>The dispatch, for participants later work items add beside the cycle.</summary>
@@ -112,9 +128,16 @@ public sealed class SoloSpeakerHost : IDisposable
         _transport.Dispose();
     }
 
-    private void WireParticipants(ErrorCause startupCause)
+    private void WireParticipants(EffectExecutor executor, ErrorCause startupCause)
     {
         _transport.DatagramReceived += datagram => _dispatch.Receive(datagram);
+
+        // §9.1's decision D-1: the user reached for the volume flyout, which is a claim.
+        // Queued rather than reduced inline - the executor raises this from inside a
+        // reduction, and posting keeps the follow-up a subsequent cycle rather than a
+        // re-entrant one.
+        executor.ExternalUnmuteObserved += () =>
+            _dispatch.Post(new ArbitrationEvent.ManualClaim(ClaimSource.ExternalUnmute));
 
         _transport.Bound += () =>
         {
@@ -141,4 +164,32 @@ public sealed class SoloSpeakerHost : IDisposable
             _dispatch.Post(new ArbitrationEvent.ErrorRaised(startupCause));
         }
     }
+
+    /// <summary>
+    /// §7.3's device change. Arrives on a COM thread, so it only ever queues.
+    /// </summary>
+    /// <remarks>
+    /// Release-before-acquire. The failure mode of releasing first is a brief audible window
+    /// on a device nobody is listening to; the failure mode of acquiring first is a stranded
+    /// mute on the device the user just walked away from, which survives a reboot. Matrix
+    /// row D1. A kill between the release and the re-mute leaves nothing muted, which is
+    /// Goal 1's direction.
+    /// </remarks>
+    private void OnDefaultRenderChanged() => _dispatch.PostWork(() =>
+    {
+        if (_actuator.CurrentEndpointId is { } previous)
+        {
+            ReconcileOutcome released = _reconciler.Release(previous);
+
+            if (released.Cause != ErrorCause.None)
+            {
+                _dispatch.Post(new ArbitrationEvent.ErrorRaised(released.Cause));
+            }
+        }
+
+        _actuator.Retarget();
+
+        // Drives the reconcile that mutes the new endpoint if §5.5 still wants it muted.
+        _dispatch.Post(new ArbitrationEvent.Tick());
+    });
 }

@@ -59,44 +59,68 @@ public sealed class StartupSequence
     private readonly ISecretProtector _protector;
     private readonly IClock _clock;
     private readonly string _root;
+    private readonly ILedger _ledger;
+    private readonly IMuteActuator _actuator;
 
     /// <summary>Creates a sequence over one data root.</summary>
-    public StartupSequence(IFileStore files, ISecretProtector protector, IClock clock, string root)
+    public StartupSequence(
+        IFileStore files,
+        ISecretProtector protector,
+        IClock clock,
+        string root,
+        ILedger ledger,
+        IMuteActuator actuator)
     {
         ArgumentNullException.ThrowIfNull(files);
         ArgumentNullException.ThrowIfNull(protector);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentException.ThrowIfNullOrWhiteSpace(root);
+        ArgumentNullException.ThrowIfNull(ledger);
+        ArgumentNullException.ThrowIfNull(actuator);
 
         _files = files;
         _protector = protector;
         _clock = clock;
         _root = root;
+        _ledger = ledger;
+        _actuator = actuator;
     }
 
     /// <summary>Runs the steps in order.</summary>
-    public StartupResult Run()
+    /// <param name="guard">
+    /// The already-acquired single-instance guard. Acquisition happens in
+    /// <c>Program</c> because the handle must outlive this call - ADR 0012 requires the
+    /// guard to still be held while the app runs, and a <c>StartupResult</c> cannot carry it.
+    /// </param>
+    public StartupResult Run(SingleInstanceGuard guard)
     {
-        AcquireSingleInstance();
-        ReplayLedger();
+        ArgumentNullException.ThrowIfNull(guard);
 
-        return LoadPersisted();
-    }
+        ErrorCause replayCause = ReplayLedger();
+        StartupResult loaded = LoadPersisted();
 
-    /// <summary>
-    /// ADR 0012's named mutex, acquired <b>before</b> ledger replay so a second instance
-    /// cannot restore an endpoint the first is legitimately holding. Work item 12.
-    /// </summary>
-    private static void AcquireSingleInstance()
-    {
+        // §7.4 names the FIRST cause raised, and replay runs first. Without this the
+        // ledger's failure would be masked by anything the persisted files reported, and
+        // matrix row E5 asserts the ledger cause specifically.
+        return replayCause != ErrorCause.None
+            ? loaded with { Cause = replayCause }
+            : loaded;
     }
 
     /// <summary>
     /// §7.3's "on every startup, before anything else" ledger replay - before anything this
-    /// instance is entitled to do, which is why the guard precedes it. Work item 7.
+    /// instance is entitled to do, which is why the guard precedes it.
     /// </summary>
-    private static void ReplayLedger()
+    private ErrorCause ReplayLedger()
     {
+        LedgerReplayResult result = _ledger.Replay(_actuator);
+
+        if (result.Failed)
+        {
+            return ErrorCause.LedgerReplayFailed;
+        }
+
+        return result.Unrepaired > 0 ? ErrorCause.MuteApplyFailed : ErrorCause.None;
     }
 
     /// <summary>§7.5: read both files and apply the cross-file check. Work item 5.</summary>

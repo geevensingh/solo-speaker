@@ -1,3 +1,5 @@
+using SoloSpeaker.Core.Abstractions;
+
 namespace SoloSpeaker.App.Hosting;
 
 /// <summary>
@@ -33,26 +35,57 @@ public sealed class ShutdownSequence
     private readonly HeartbeatPump _pump;
     private readonly DepartureAnnouncer _departure;
     private readonly EventDispatch _dispatch;
+    private readonly Action _stopEndpointWatch;
+    private readonly ILedger _ledger;
+    private readonly IMuteActuator _actuator;
 
-    /// <summary>Creates a sequence over the three things work item 6 shuts down.</summary>
-    public ShutdownSequence(HeartbeatPump pump, DepartureAnnouncer departure, EventDispatch dispatch)
+    private bool _ran;
+
+    /// <summary>Creates a sequence over the things work item 7 shuts down.</summary>
+    public ShutdownSequence(
+        HeartbeatPump pump,
+        DepartureAnnouncer departure,
+        EventDispatch dispatch,
+        Action stopEndpointWatch,
+        ILedger ledger,
+        IMuteActuator actuator)
     {
         ArgumentNullException.ThrowIfNull(pump);
         ArgumentNullException.ThrowIfNull(departure);
         ArgumentNullException.ThrowIfNull(dispatch);
+        ArgumentNullException.ThrowIfNull(stopEndpointWatch);
+        ArgumentNullException.ThrowIfNull(ledger);
+        ArgumentNullException.ThrowIfNull(actuator);
 
         _pump = pump;
         _departure = departure;
         _dispatch = dispatch;
+        _stopEndpointWatch = stopEndpointWatch;
+        _ledger = ledger;
+        _actuator = actuator;
     }
 
-    /// <summary>Runs the steps in order.</summary>
+    /// <summary>Runs the steps in order. Idempotent.</summary>
+    /// <remarks>
+    /// The guard is not defensive programming. This is invoked twice on an ordinary logoff -
+    /// once from the window's <c>WM_ENDSESSION</c> handler and again from the host's
+    /// disposal after the message loop returns. Before work item 7 that double-sent a
+    /// <c>bye</c>, which was untidy; now it would be a double audio mutation and a double
+    /// ledger operation on the one path §7.6 names as the graceful unmute.
+    /// </remarks>
     public void Run()
     {
+        if (_ran)
+        {
+            return;
+        }
+
+        _ran = true;
+
         StopCadence();
         AnnounceDeparture();
+        StopEndpointWatch();
         RestoreEndpoints();
-        ClearLedger();
         ReleaseSingleInstance();
     }
 
@@ -74,23 +107,27 @@ public sealed class ShutdownSequence
     }
 
     /// <summary>
-    /// §7.3: undo every mute this process made, using the ledger as the record. Work item 7.
+    /// Unsubscribes from device notifications <b>before</b> restoring, so an endpoint change
+    /// racing shutdown cannot re-target and re-mute an endpoint whose ledger entry the next
+    /// step is about to clear.
     /// </summary>
-    private static void RestoreEndpoints()
-    {
-    }
+    private void StopEndpointWatch() => _stopEndpointWatch();
 
     /// <summary>
-    /// §7.3: the ledger is only cleared once the endpoints it describes are actually
-    /// restored, so this follows rather than precedes. Work item 7.
+    /// §7.3: undo every mute this process made, using the ledger as the record.
     /// </summary>
-    private static void ClearLedger()
-    {
-    }
+    /// <remarks>
+    /// It reads the <em>ledger</em> rather than any in-memory reconciler state, which is
+    /// what makes a mutation applied during <c>AnnounceDeparture</c>'s drain still covered.
+    /// Replay also clears what it repairs, so there is no separate clear step: an entry that
+    /// could not be restored is deliberately kept, and a second void method could not have
+    /// expressed that constraint.
+    /// </remarks>
+    private void RestoreEndpoints() => _ledger.Replay(_actuator);
 
     /// <summary>
     /// ADR 0012's mutex, released last so no second instance can start while this one is
-    /// still restoring audio. Work item 12.
+    /// still restoring audio. Owned by <c>Program</c>, which disposes it after this returns.
     /// </summary>
     private static void ReleaseSingleInstance()
     {
