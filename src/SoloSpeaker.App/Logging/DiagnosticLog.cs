@@ -25,7 +25,6 @@ public sealed class DiagnosticLog
 
     private TrayState _lastTray = TrayState.Alone;
     private bool _lastPresent;
-    private MachineId _lastOwner = MachineId.None;
     private bool _seeded;
 
     /// <summary>Creates a log over the sink and the clock.</summary>
@@ -63,10 +62,29 @@ public sealed class DiagnosticLog
         ArbitrationState previous = observation.PreviousState;
         ReducerResult result = observation.Result;
 
+        // Read once, for both the ownership line and the quarantine-exit reason. The reason
+        // used to be inferred from whether ownership had moved, which was wrong: a quarantine
+        // adoption moves ownership too, so every adoption was logged as a manual claim - the
+        // opposite of the truth, in the log that exists to explain lid-open behaviour.
+        OwnershipSource? source = OwnershipSourceOf(result);
+
         LogOwnership(result);
         LogPresence(previous, result, observation.Event);
         LogTray(result);
-        LogQuarantine(previous, result);
+        LogQuarantine(previous, result, source);
+    }
+
+    private static OwnershipSource? OwnershipSourceOf(ReducerResult result)
+    {
+        foreach (ArbitrationEffect effect in result.Effects)
+        {
+            if (effect is ArbitrationEffect.PersistState persist)
+            {
+                return persist.Source;
+            }
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -99,8 +117,6 @@ public sealed class DiagnosticLog
                 {
                     At = _clock.UtcNow,
                 });
-
-                _lastOwner = persist.ActiveOwner;
             }
         }
     }
@@ -146,7 +162,7 @@ public sealed class DiagnosticLog
         _seeded = true;
     }
 
-    private void LogQuarantine(ArbitrationState previous, ReducerResult result)
+    private void LogQuarantine(ArbitrationState previous, ReducerResult result, OwnershipSource? source)
     {
         bool was = previous.Quarantine is not null;
         bool now = result.State.Quarantine is not null;
@@ -166,17 +182,28 @@ public sealed class DiagnosticLog
             return;
         }
 
-        // Exit has three distinct causes and they are not interchangeable: a manual claim
-        // ends the window deliberately (§7.6's carve-out), while expiry either adopts what
+        // Exit has three distinct causes and they are not interchangeable: §7.6's carve-out
+        // lets a manual claim end the window deliberately, while expiry either adopts what
         // the window observed or keeps what this machine already held.
-        string reason = previous.Quarantine is { PeerObserved: true }
-            ? "expired, adopted observed pair"
-            : "expired, nothing observed";
-
-        if (result.State.ActiveOwner == _lastOwner && previous.ActiveOwner != result.State.ActiveOwner)
+        //
+        // The cause is read from the write that accompanied the exit, never inferred from
+        // whether ownership moved - an adoption moves ownership exactly as a claim does, so
+        // inference cannot separate them and reported every adoption as a claim. Expiry with
+        // nothing observed emits no write at all, which is what distinguishes it.
+        string reason = source switch
         {
-            reason = "manual claim";
-        }
+            null => "expired, nothing observed",
+            OwnershipSource.QuarantineAdoption => "expired, adopted observed pair",
+            OwnershipSource.ManualClaim => "manual claim",
+            OwnershipSource.MicEdge => "mic edge",
+
+            // §5.4's convergence is skipped entirely while the window is open, so neither
+            // PeerAdoption nor TiebreakWin can be written alongside an exit. Should that stop
+            // being true, name what happened rather than quietly reporting one of the four
+            // reasons above - a wrong reason here is worse than an unfamiliar one, because it
+            // is the wrong reason that gets believed.
+            _ => $"exited, unexpected source {source}",
+        };
 
         _sink.Write(new LogEntry.QuarantineChanged("exited", reason) { At = _clock.UtcNow });
     }
