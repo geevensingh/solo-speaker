@@ -99,6 +99,12 @@ jobs:
           # PSGallery only when that import fails. PSGallery leaves the steady-state
           # path; it remains the drift path, so the fallback annotates the run.
           $minimumVersion = '1.25.0'
+          # TEMPORARY - remove before merge. Hides the image's AllUsers module roots so
+          # the fallback branch below actually executes once, per ci.yml lines 78-80.
+          $env:PSModulePath = ($env:PSModulePath -split ';' | Where-Object {
+              $_ -notlike '*\WindowsPowerShell\Modules' -and $_ -notlike '*\Program Files\PowerShell\Modules'
+          }) -join ';'
+          Write-Host "Narrowed PSModulePath to: $env:PSModulePath"
           try {
               $module = Import-Module PSScriptAnalyzer -PassThru -MinimumVersion $minimumVersion -ErrorAction Stop
           }
