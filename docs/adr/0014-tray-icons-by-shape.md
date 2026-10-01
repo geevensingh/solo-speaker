@@ -1,6 +1,6 @@
 # 0014 - Tray icons differentiated by shape, not colour
 
-**Status:** Accepted - 2026-09-27; amended 2026-09-28 for the sixth state
+**Status:** Accepted - 2026-09-27; amended 2026-09-29 for the sixth state
 **Resolves:** `implementation-plan.md` §8.4
 
 ## Context

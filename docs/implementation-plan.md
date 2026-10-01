@@ -483,7 +483,7 @@ are resolved first. Exit criteria are `design.md` §8's, unchanged.
 | 6 | `PeerLink` over real UDP, including `bye` on graceful exit and its three receipt rules | Two instances on one host, separate config roots, and one port with `SO_REUSEADDR`, exchange state; a `bye` clears presence without moving `activeOwner` |
 | 7 | `MuteActuator` + `Ledger` over `IFileStore` + `--restore` + `IMMNotificationClient` + mutex acquisition | §4.5's ledger rows green in Core; headset swap re-targets by hand; same-root launch and `--restore` take the guard before ledger replay |
 | 8 | **Logging** (ADR 0015), with per-minute ingress-drop aggregation | Ownership changes name their source; a version mismatch is distinguishable from an absent peer |
-| 9 | Tray: five states, **icons** (ADR 0014), named producers, hotkey, sticky `error` | Every state reachable and observed; registration failure raises `error` |
+| 9 | Tray: six states, **icons** (ADR 0014), named producers, hotkey, sticky `error` | Every state reachable and observed; registration failure raises `error` |
 | 10 | Pairing ceremony (ADR 0011), including pairing-mode ingress exception | Two machines paired from scratch; fingerprints match |
 | 11 | Quarantine: cold start, resume, network-change restart | Lid-open does not move the mute |
 | 12 | **Single-instance UX** (ADR 0012), a real shutdown channel so the scripts can stop a tray app, then packaging: publish, install, uninstall, logon task | Second launch reports visibly; `install.ps1` upgrades over a running instance without throwing; clean install -> reboot -> still working -> clean uninstall |
@@ -516,7 +516,7 @@ Critical defects. See [`review-2026-09-28.md`](review-2026-09-28.md).
 | §8.1 Pairing transfer unspecified | Bundle file to B; B's roster ID returns on its ordinary first heartbeat, accepted while A's roster is incomplete and its pairing window is open. **No new wire message type** | [0011](adr/0011-pairing-bundle-file.md) | H-3, H-4, H-5, H-6 |
 | §8.2 No single-instance guard | Named mutex `Local\SoloSpeaker`, acquired **before** ledger replay | [0012](adr/0012-single-instance-guard.md) | M-1, M-2 |
 | §8.3 `pairKey` in plaintext | DPAPI protects the `pairKey` field only; the rest of `config.json` stays readable | [0013](adr/0013-dpapi-protects-pairkey-only.md) | none - survived review intact |
-| §8.4 No tray icon assets | Five icons differentiated by silhouette, colour as reinforcement only | [0014](adr/0014-tray-icons-by-shape.md) | H-8, and no assets exist |
+| §8.4 No tray icon assets | Six icons differentiated by silhouette, colour as reinforcement only | [0014](adr/0014-tray-icons-by-shape.md) | H-8, and no assets exist |
 | §8.5 No diagnostics | Rolling local log; **ingress drops aggregated per minute by reason** | [0015](adr/0015-local-rolling-log.md) | M-5 remains open - row 8 bounded its blast radius with the rolling tail, but work item 11 owns the fix: extending the per-minute rollup to presence and ownership transitions |
 | §8.6 Asymmetric unmute latency | `bye` field added to wire format v1 | [0016](adr/0016-goodbye-datagram-in-v1.md) | **B-1, B-2 were Critical; both fixed in `design.md` revision 4** |
 
