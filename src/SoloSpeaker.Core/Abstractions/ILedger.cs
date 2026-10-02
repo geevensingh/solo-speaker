@@ -61,7 +61,8 @@ public interface ILedger
 /// </param>
 /// <param name="Unrepaired">
 /// Entries whose endpoint exists but whose restore failed. These are <b>retained</b>, raise
-/// <see cref="StateMachine.ErrorCause.MuteApplyFailed"/>, and make <c>--restore</c> exit non-zero so that
+/// <see cref="StateMachine.ErrorCause.UnmuteWriteFailed"/> - replay only ever unmutes - and
+/// make <c>--restore</c> exit non-zero so that
 /// <c>uninstall.ps1</c> refuses to delete the two things capable of repairing the mute.
 /// </param>
 /// <param name="Failed">

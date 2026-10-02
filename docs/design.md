@@ -1,8 +1,37 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 11 - makes the first real audio mutation fail-audible; revision 10 fixes the PeerLink transport and rejoin contradictions row 6 surfaced; revision 9 settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 12 - splits the actuator's cause by direction so the Goal 1 half is nameable; revision 11 makes the first real audio mutation fail-audible; revision 10 fixes the PeerLink transport and rejoin contradictions row 6 surfaced; revision 9 settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 12 changes, 2026-10-02.** Retires `MuteApplyFailed`, added in revision 11, and
+> replaces it with `MuteWriteFailed` and `UnmuteWriteFailed`.
+>
+> **The two directions are opposites under Goal 1.** A failed *unmute* leaves the machine
+> silent when it should not be - the product's defining failure. A failed *mute* leaves it
+> audible, which is the product failing in its safe direction. One cause could not carry
+> both, and §7.4's own producer paragraph had to describe the pair with a sentence
+> (*"applying a mute or unmute ... failed"*) that said nothing about which had happened.
+> §7.3's reconciler already names the asymmetry - its unmute path carries "no suppression
+> window, no ownership test and no age check may stand between a machine and becoming
+> audible again" - but nothing above it could express the distinction.
+>
+> **Both halves stay edge**, exactly as `MuteApplyFailed` was. This revision changes no
+> behaviour; it makes a condition nameable that the product could already reach.
+>
+> **Two gaps are deliberately left open**, recorded here so they are deferred rather than
+> forgotten:
+>
+> - §7.4's `error` precedence is still **first raised wins**, so a latched `MuteWriteFailed`
+>   drops a later `UnmuteWriteFailed`. Until that changes, the rolling log can name the safe
+>   direction on a machine that is stuck silent. A test pins the drop.
+> - Both halves being edge means `Acknowledge` clears them, and nothing re-raises. A user can
+>   dismiss a failed unmute and leave the tray ordinary while the machine is still silent.
+>   Closing this needs a retraction path, which §7.4's own revision 9 note requires.
+>
+> **Row 9 inherits one obligation.** §7.4 requires the tooltip to name the specific cause;
+> `UnmuteWriteFailed` must be phrased in outcome terms there, because "unmute write failed"
+> does not tell a user their machine may still be silent.
 
 > **Revision 11 changes, 2026-09-30.** Three amendments from the row 7 review land before
 > the first code path that can touch real audio state. The rejected alternatives all fail
@@ -715,8 +744,8 @@ persisted files:
   the manual-claim row below clears the entry when we cede a mute, a stale
   `priorMute: true` entry cannot survive to replay as a command either.
 - An entry whose restore did not succeed is never cleared - not during replay, and not
-  during a device change. If the endpoint exists but the write fails, `MuteApplyFailed` is
-  raised, `--restore` exits non-zero, and the entry stays. Distinguishing that from "gone"
+  during a device change. If the write fails, `UnmuteWriteFailed` is raised - replay only ever
+  unmutes - `--restore` exits non-zero, and the entry stays. Distinguishing that from "gone"
   is load-bearing: gone means absent from enumeration entirely, not merely unplugged. An
   unplugged-but-retained headset is not gone, and clearing its entry is what would strand it.
 - The app ships a `--restore` switch that replays the ledger and clears only successful
@@ -775,7 +804,7 @@ monotonic clock (`IClock.Elapsed`), never wall-clock.
 | `unclaimed` | `activeOwner == MachineId.None` and a peer is present - nobody has claimed yet, so both machines are audible *(revision 7)* |
 | `alone` | no peer heartbeat within the presence window |
 | `quarantine` | §7.6 rejoin window, state not yet reconciled |
-| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded, **on the wire or on disk**; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; **`MuteApplyFailed` - applying a mute or unmute to an endpoint that exists failed**; `config.json` unreadable on this profile; **a `pairKey` the configuration store refuses** (§7.5); **a persisted file whose `schema` this build does not recognise**; **a tunable field that failed validation and fell back to its default**; **`TransportUnavailable` - the socket could not be bound, or lost the network and has not been re-bound** |
+| `error` | `activeOwner` outside the roster **and not `MachineId.None`**; roster incomplete after the pairing window; hotkey registration failure; `seq` bound exceeded, **on the wire or on disk**; unknown `v` from an **authenticated** peer; **sustained unverifiable traffic on our `pairId` with nothing valid accepted** (§7.1); ledger replay failure; endpoint enumeration failure; **`MuteWriteFailed` and `UnmuteWriteFailed` - a mute or unmute could not be applied**; `config.json` unreadable on this profile; **a `pairKey` the configuration store refuses** (§7.5); **a persisted file whose `schema` this build does not recognise**; **a tunable field that failed validation and fell back to its default**; **`TransportUnavailable` - the socket could not be bound, or lost the network and has not been re-bound** |
 
 `activeOwner == MachineId.None` is the ordinary pre-claim state of §5 and is **never** an
 `error` cause. *(revision 7)* It gets its own state rather than being folded into `active`
@@ -796,11 +825,21 @@ observability, not the Goal 1 safety rule: a deaf machine cannot establish prese
 §5.5 predicate keeps it audible, but without the cause the tray shows an ordinary state
 while the machine cannot hear its peer.
 
-`MuteApplyFailed` is the actuator's producer, added in row 7. It is raised when applying a
-mute or unmute to an endpoint that exists failed. It is an edge cause: it latches until
-acknowledged, because the failed write has already happened and is not re-derived from the
-current state. A missing endpoint is not this cause; §7.3 treats an endpoint absent from
-enumeration as a cleared ledger entry.
+`MuteWriteFailed` and `UnmuteWriteFailed` are the actuator's producers, added in row 7 as a
+single `MuteApplyFailed` and split by direction in revision 12. Each is raised when a mute or
+unmute could not be applied - the write failed, or the endpoint could not be reached. Both are
+edge causes: they latch until acknowledged, because the failed write has already happened and
+is not re-derived from the current state.
+
+The directions are **opposites under Goal 1** and that is why one member could not carry both.
+A failed unmute leaves the machine silent when it should not be; a failed mute leaves it
+audible, which is the product failing in its safe direction. Anything that ranks causes must
+rank `UnmuteWriteFailed` above `MuteWriteFailed`.
+
+§7.3 treats an endpoint absent from enumeration as a cleared ledger entry, so replay never
+raises either cause for a missing endpoint. The reconciler is deliberately looser: its unmute
+path raises on any outcome that is not "applied", because on the one path where silence is the
+failure, a write that could not reach its endpoint must still raise something.
 
 `error` precedence: where several causes hold at once, the tooltip names the **first raised**
 and keeps it until acknowledged. Causes divide into two kinds, and they are acknowledged
@@ -811,7 +850,7 @@ true until the condition itself changes and **cannot be acknowledged while they 
 true**, because acknowledging one would clear the tray while the machine sits in exactly
 the condition the `error` exists to expose. **Edge** causes - hotkey registration failure,
 `seq` bound exceeded, unknown `v`, sustained unverifiable traffic, ledger replay failure,
-endpoint enumeration failure, `MuteApplyFailed`, a failed state write, a tunable that fell
+endpoint enumeration failure, `MuteWriteFailed`, `UnmuteWriteFailed`, a failed state write, a tunable that fell
 back to its default - latch until acknowledged.
 
 *(revision 9)* Only one continuous cause - `activeOwner` outside the roster - is derivable

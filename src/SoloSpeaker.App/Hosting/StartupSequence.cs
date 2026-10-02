@@ -120,7 +120,9 @@ public sealed class StartupSequence
             return ErrorCause.LedgerReplayFailed;
         }
 
-        return result.Unrepaired > 0 ? ErrorCause.MuteApplyFailed : ErrorCause.None;
+        // Replay only ever unmutes - JsonLedger.Replay skips priorMute entries and calls
+        // TrySetMute(muted: false) - so an unrepaired entry is always the Goal 1 direction.
+        return result.Unrepaired > 0 ? ErrorCause.UnmuteWriteFailed : ErrorCause.None;
     }
 
     /// <summary>§7.5: read both files and apply the cross-file check. Work item 5.</summary>

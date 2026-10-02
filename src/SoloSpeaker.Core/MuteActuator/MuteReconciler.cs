@@ -132,7 +132,7 @@ public sealed class MuteReconciler
 
         if (outcome == MuteApplyOutcome.Failed)
         {
-            return new ReconcileOutcome(Claim: false, ErrorCause.MuteApplyFailed);
+            return new ReconcileOutcome(Claim: false, ErrorCause.UnmuteWriteFailed);
         }
 
         _ledger.Clear(endpointId);
@@ -185,7 +185,13 @@ public sealed class MuteReconciler
 
         // The entry stays. The mutation may have partly landed, and the record is the only
         // thing that can repair it.
-        return new ReconcileOutcome(Claim: false, ErrorCause.MuteApplyFailed);
+        //
+        // EndpointGone reaches here too, because this tests == Applied rather than == Failed.
+        // It is unreachable in practice: Reconcile calls ReadActualMute() first, which proves
+        // the endpoint resolves, and EndpointWatcher posts its retarget through the dispatch
+        // rather than running on the COM thread. Kept loose deliberately - tightening to
+        // == Failed would let an EndpointGone write raise no cause at all.
+        return new ReconcileOutcome(Claim: false, ErrorCause.MuteWriteFailed);
     }
 
     private ReconcileOutcome Unmute(string endpointId)
@@ -197,7 +203,10 @@ public sealed class MuteReconciler
 
         if (outcome != MuteApplyOutcome.Applied)
         {
-            return new ReconcileOutcome(Claim: false, ErrorCause.MuteApplyFailed);
+            // Goal 1's direction. EndpointGone reaches here as well as Failed - see the note
+            // in Mute; the looseness is deliberate, because a silent machine must raise a
+            // cause whichever way the write failed.
+            return new ReconcileOutcome(Claim: false, ErrorCause.UnmuteWriteFailed);
         }
 
         _lastWritten = false;

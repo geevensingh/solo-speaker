@@ -111,17 +111,45 @@ public enum ErrorCause
     TransportUnavailable,
 
     /// <summary>
-    /// §7.3: applying a mute or unmute to an endpoint that exists failed. Edge. Raised at
-    /// row 7.
+    /// §7.3: a mute or unmute could not be applied - the write failed, or the endpoint could
+    /// not be reached. Edge. Raised at row 7. This is the <b>mute</b> direction, which leaves
+    /// the machine audible when it should be silent.
     /// </summary>
     /// <remarks>
-    /// Added in design revision 11. A failed <em>unmute</em> is the highest-consequence
-    /// runtime event this product has, and it had no cause at all: the actuator seam
-    /// returned one <see langword="bool"/> that meant "the endpoint is gone", so a genuine
-    /// write failure was counted as a cleared entry and <c>--restore</c> reported success
-    /// over a machine that was still muted.
+    /// <para>
+    /// Added in design revision 11 as <c>MuteApplyFailed</c>, covering both directions; split
+    /// in revision 12. The two directions are opposites under Goal 1 and one member could not
+    /// carry both - see <see cref="UnmuteWriteFailed"/>.
+    /// </para>
+    /// <para>
+    /// This half is <em>not</em> Goal 1's direction. A failed mute leaves the machine audible,
+    /// which is the product failing in its safe direction.
+    /// </para>
     /// </remarks>
-    MuteApplyFailed,
+    MuteWriteFailed,
+
+    /// <summary>
+    /// §7.3: a mute or unmute could not be applied - the write failed, or the endpoint could
+    /// not be reached. Edge. Raised at row 7. This is the <b>unmute</b> direction, which
+    /// leaves the machine silent when it should not be.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Added in design revision 11 as <c>MuteApplyFailed</c>; split out in revision 12.
+    /// A failed <em>unmute</em> is the highest-consequence runtime event this product has,
+    /// and before revision 11 it had no cause at all: the actuator seam returned one
+    /// <see langword="bool"/> that meant "the endpoint is gone", so a genuine write failure
+    /// was counted as a cleared entry and <c>--restore</c> reported success over a machine
+    /// that was still muted.
+    /// </para>
+    /// <para>
+    /// <b>This is Goal 1's direction.</b> Anything that ranks causes must rank this above
+    /// <see cref="MuteWriteFailed"/>; row 7's reconciler says the same thing about writes -
+    /// "no suppression window, no ownership test and no age check may stand between a machine
+    /// and becoming audible again".
+    /// </para>
+    /// </remarks>
+    UnmuteWriteFailed,
 }
 
 /// <summary>Classification helpers for <see cref="ErrorCause"/>.</summary>

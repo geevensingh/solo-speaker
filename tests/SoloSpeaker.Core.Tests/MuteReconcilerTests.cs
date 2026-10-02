@@ -131,7 +131,7 @@ public sealed class MuteReconcilerTests
     }
 
     [Fact]
-    public void A_failed_mute_reports_mute_apply_failed_and_retains_the_ledger_entry()
+    public void A_failed_mute_reports_mute_write_failed_and_retains_the_ledger_entry()
     {
         ReconcilerFixture fixture = ReconcilerFixture.Create(actualMute: false);
         fixture.Actuator.SetSetMuteOutcome(EndpointId, MuteApplyOutcome.Failed);
@@ -139,9 +139,46 @@ public sealed class MuteReconcilerTests
         ReconcileOutcome outcome = fixture.Reconciler.Reconcile(shouldMute: true);
 
         Assert.False(outcome.Claim);
-        Assert.Equal(ErrorCause.MuteApplyFailed, outcome.Cause);
+        Assert.Equal(ErrorCause.MuteWriteFailed, outcome.Cause);
         Assert.Equal([EndpointId], fixture.Ledger.RecordedEndpoints);
         Assert.True(fixture.Files.Exists(LedgerPath));
+    }
+
+    /// <summary>
+    /// Goal 1's direction, and the first test of this path in the tree. Design revision 12
+    /// split <c>MuteApplyFailed</c> because a failed unmute leaves the machine <b>silent</b>
+    /// while a failed mute leaves it audible - opposite consequences that one cause could
+    /// not carry.
+    /// </summary>
+    [Fact]
+    public void A_failed_unmute_reports_unmute_write_failed()
+    {
+        ReconcilerFixture fixture = ReconcilerFixture.Create(actualMute: false);
+        Assert.Equal(ErrorCause.None, fixture.Reconciler.Reconcile(shouldMute: true).Cause);
+        fixture.Actuator.SetSetMuteOutcome(EndpointId, MuteApplyOutcome.Failed);
+
+        ReconcileOutcome outcome = fixture.Reconciler.Reconcile(shouldMute: false);
+
+        Assert.False(outcome.Claim);
+        Assert.Equal(ErrorCause.UnmuteWriteFailed, outcome.Cause);
+    }
+
+    /// <summary>
+    /// <c>Unmute</c> tests <c>!= Applied</c> rather than <c>== Failed</c>, so
+    /// <see cref="MuteApplyOutcome.EndpointGone"/> raises the cause too. That looseness is
+    /// deliberate: tightening it would let an unmute that could not reach its endpoint raise
+    /// nothing at all, on the one path where silence is the failure.
+    /// </summary>
+    [Fact]
+    public void An_unmute_whose_endpoint_vanished_still_reports_unmute_write_failed()
+    {
+        ReconcilerFixture fixture = ReconcilerFixture.Create(actualMute: false);
+        Assert.Equal(ErrorCause.None, fixture.Reconciler.Reconcile(shouldMute: true).Cause);
+        fixture.Actuator.SetSetMuteOutcome(EndpointId, MuteApplyOutcome.EndpointGone);
+
+        ReconcileOutcome outcome = fixture.Reconciler.Reconcile(shouldMute: false);
+
+        Assert.Equal(ErrorCause.UnmuteWriteFailed, outcome.Cause);
     }
 
     /// <summary>
@@ -149,7 +186,7 @@ public sealed class MuteReconcilerTests
     /// across the next default-device change.
     /// </summary>
     [Fact]
-    public void A_release_whose_restore_fails_reports_mute_apply_failed_and_retains_the_entry()
+    public void A_release_whose_restore_fails_reports_unmute_write_failed_and_retains_the_entry()
     {
         ReconcilerFixture fixture = ReconcilerFixture.Create(actualMute: true);
         fixture.Ledger.RecordIntent(EndpointId, priorMute: false);
@@ -158,7 +195,7 @@ public sealed class MuteReconcilerTests
         ReconcileOutcome outcome = fixture.Reconciler.Release(EndpointId);
 
         Assert.False(outcome.Claim);
-        Assert.Equal(ErrorCause.MuteApplyFailed, outcome.Cause);
+        Assert.Equal(ErrorCause.UnmuteWriteFailed, outcome.Cause);
         Assert.Equal([EndpointId], fixture.Ledger.RecordedEndpoints);
         Assert.True(fixture.Files.Exists(LedgerPath));
     }

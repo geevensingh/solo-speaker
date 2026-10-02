@@ -90,8 +90,12 @@ public enum MuteApplyOutcome
     EndpointGone,
 
     /// <summary>
-    /// The endpoint exists and the write failed. The entry is retained, the cause is
-    /// <see cref="StateMachine.ErrorCause.MuteApplyFailed"/>, and <c>--restore</c> exits non-zero.
+    /// The endpoint exists and the write failed. The entry is retained, and the cause is
+    /// <see cref="StateMachine.ErrorCause.MuteWriteFailed"/> or
+    /// <see cref="StateMachine.ErrorCause.UnmuteWriteFailed"/> according to the direction
+    /// applied - this outcome is returned from both. When it comes from
+    /// <see cref="IMuteActuator.TrySetMute"/> during replay, <c>--restore</c> also exits
+    /// non-zero.
     /// </summary>
     Failed,
 }
