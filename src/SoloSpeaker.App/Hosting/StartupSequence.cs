@@ -99,12 +99,16 @@ public sealed class StartupSequence
         ErrorCause replayCause = ReplayLedger();
         StartupResult loaded = LoadPersisted();
 
-        // §7.4 names the FIRST cause raised, and replay runs first. Without this the
-        // ledger's failure would be masked by anything the persisted files reported, and
-        // matrix row E5 asserts the ledger cause specifically.
-        return replayCause != ErrorCause.None
-            ? loaded with { Cause = replayCause }
-            : loaded;
+        // Behaviour-preserving: replay's two causes both rank MaySilence and the persisted
+        // ones rank at most Impaired, so the rank decides every contested pair. The only
+        // reachable tie is None/None, where the result is an equal record. The tie direction
+        // is carried forward from the old expression, not argued - unlike EffectiveError,
+        // neither operand here was ever raised, so §7.4's first-raised rule does not apply.
+        // Matrix row E5 asserts the ledger cause specifically.
+        return loaded with
+        {
+            Cause = ErrorCauseExtensions.Louder(preferred: replayCause, other: loaded.Cause),
+        };
     }
 
     /// <summary>
@@ -157,9 +161,14 @@ public sealed class StartupSequence
         StartupOutcome decided = StartupDecision.Decide(
             config.PairId, JsonStateStore.LastRead, JsonStateStore.StatePairId, activeOwner, seq, _clock.Elapsed);
 
-        // A tunable that fell back names itself, but only when nothing louder is already
-        // pending - §7.4 names the first cause raised.
-        ErrorCause cause = decided.Cause != ErrorCause.None ? decided.Cause : config.TunableFault;
+        // A tunable that fell back names itself, but only when nothing louder is pending.
+        // decided.Cause is preferred on a tie because that reproduces the old expression;
+        // the tie is reachable (a refused state.json beside a usable config.json with an
+        // out-of-range port) and both operands rank Impaired, so the rank does not decide
+        // it. Not argued from §7.4 - neither operand has been raised at this point.
+        ErrorCause cause = ErrorCauseExtensions.Louder(
+            preferred: decided.Cause,
+            other: config.TunableFault);
 
         return new StartupResult(config, decided.State, cause);
     }

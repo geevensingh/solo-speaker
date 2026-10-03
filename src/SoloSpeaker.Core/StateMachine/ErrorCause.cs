@@ -152,6 +152,45 @@ public enum ErrorCause
     UnmuteWriteFailed,
 }
 
+/// <summary>
+/// How close a cause is to silencing <b>this</b> machine, which is the axis Goal 1 supplies.
+/// </summary>
+/// <remarks>
+/// <para>
+/// Classification is <b>ordered</b>, not three independent predicates: test
+/// <see cref="MaySilence"/> first, then <see cref="Limited"/>; <see cref="Impaired"/> is
+/// what remains. Both <see cref="ErrorCause.HotkeyRegistrationFailed"/> and
+/// <see cref="ErrorCause.None"/> satisfy <see cref="Impaired"/>'s sentence as well, so a
+/// membership-only reading is underdetermined.
+/// </para>
+/// <para>
+/// Keyed on consequence rather than on the subsystem a cause arrived through. Two earlier
+/// attempts at a positive characterisation of the middle level - "arbitration cannot be
+/// trusted", then "arbitration has stopped happening" - were each false for a third of
+/// their own members, because a failed disk write and a refused <c>state.json</c> both
+/// leave arbitration running.
+/// </para>
+/// </remarks>
+public enum AudibilityImpact
+{
+    /// <summary>No cause. Strictly the minimum, and never shared with a real cause.</summary>
+    None,
+
+    /// <summary>
+    /// Arbitration and actuation are both correct; a user-facing convenience is reduced.
+    /// </summary>
+    Limited,
+
+    /// <summary>
+    /// Not, and cannot become, the reason this machine is silent - without a further,
+    /// separately-named failure, and within the process lifetime in which it is raised.
+    /// </summary>
+    Impaired,
+
+    /// <summary>This machine may be silent when it should not be.</summary>
+    MaySilence,
+}
+
 /// <summary>Classification helpers for <see cref="ErrorCause"/>.</summary>
 public static class ErrorCauseExtensions
 {
@@ -177,4 +216,71 @@ public static class ErrorCauseExtensions
         ErrorCause.TransportUnavailable => true,
         _ => false,
     };
+
+    /// <summary>
+    /// Where <paramref name="cause"/> sits on §7.4's audibility axis.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The discard returns <see cref="AudibilityImpact.MaySilence"/> so an unclassified
+    /// cause is <b>loud</b> rather than invisible. Note this is the opposite polarity to
+    /// <see cref="IsContinuous"/>'s <c>_ => false</c>, deliberately: an unclassified cause
+    /// outranks everything and stays dismissable. Do not "fix" one to match the other.
+    /// </para>
+    /// <para>
+    /// The discard cannot be deleted - a switch expression over an enum warns CS8524 for
+    /// unnamed values even when every declared member is handled, and warnings are errors
+    /// repo-wide. <c>_ => throw</c> is also wrong, because this is reached from the reducer
+    /// and a throw there risks the loop that keeps a machine audible. Totality is therefore
+    /// a test, not a compiler gate: see <c>ErrorCauseTests</c>.
+    /// </para>
+    /// </remarks>
+    public static AudibilityImpact Impact(this ErrorCause cause) => cause switch
+    {
+        ErrorCause.None => AudibilityImpact.None,
+
+        ErrorCause.HotkeyRegistrationFailed => AudibilityImpact.Limited,
+
+        // Ranked for its worst arm: the reconciler returns it before any write and without
+        // consulting shouldMute, so one member carries both directions. Step 3 splits it.
+        ErrorCause.EndpointEnumerationFailed => AudibilityImpact.MaySilence,
+
+        // Replay only ever unmutes, so an unrepaired entry leaves a prior mute standing.
+        ErrorCause.LedgerReplayFailed => AudibilityImpact.MaySilence,
+
+        ErrorCause.UnmuteWriteFailed => AudibilityImpact.MaySilence,
+
+        // Everything else: audible now, and cannot itself become the reason for silence.
+        // A failed mute is §7.4's safe direction; a lost peer leaves §5.5's predicate false.
+        ErrorCause.ActiveOwnerOutsideRoster => AudibilityImpact.Impaired,
+        ErrorCause.RosterIncompleteAfterPairing => AudibilityImpact.Impaired,
+        ErrorCause.StatePairIdMismatch => AudibilityImpact.Impaired,
+        ErrorCause.SeqBoundExceeded => AudibilityImpact.Impaired,
+        ErrorCause.UnknownWireVersion => AudibilityImpact.Impaired,
+        ErrorCause.PeerUnverifiable => AudibilityImpact.Impaired,
+        ErrorCause.ConfigUnreadable => AudibilityImpact.Impaired,
+        ErrorCause.StateUnreadable => AudibilityImpact.Impaired,
+        ErrorCause.PersistedSchemaUnknown => AudibilityImpact.Impaired,
+        ErrorCause.PairKeyRefused => AudibilityImpact.Impaired,
+        ErrorCause.TunableFellBackToDefault => AudibilityImpact.Impaired,
+        ErrorCause.StatePersistFailed => AudibilityImpact.Impaired,
+        ErrorCause.TransportUnavailable => AudibilityImpact.Impaired,
+        ErrorCause.MuteWriteFailed => AudibilityImpact.Impaired,
+
+        _ => AudibilityImpact.MaySilence,
+    };
+
+    /// <summary>
+    /// The cause a tray should name when both hold.
+    /// </summary>
+    /// <remarks>
+    /// Ties go to <paramref name="preferred"/>. Each call site records why its operand is
+    /// the preferred one; there is no single reason that holds at all of them. The rank
+    /// itself is Core's, but the tie is the seam's choice, so this is a lexicographic order
+    /// over (impact, caller preference) rather than a total order over
+    /// <see cref="ErrorCause"/>. Step 3 replaces the single retained slot with a set, at
+    /// which point a two-operand tiebreak stops meaning anything.
+    /// </remarks>
+    public static ErrorCause Louder(ErrorCause preferred, ErrorCause other) =>
+        preferred.Impact() >= other.Impact() ? preferred : other;
 }

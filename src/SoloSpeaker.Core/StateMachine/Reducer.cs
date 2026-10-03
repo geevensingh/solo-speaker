@@ -368,17 +368,28 @@ public static class Reducer
         // itself, so it is re-derived on every evaluation and needs no latch.
         bool ownerOutsideRoster = !state.ActiveOwner.IsNone && !roster.Contains(state.ActiveOwner);
 
-        if (ownerOutsideRoster)
-        {
-            return ErrorCause.ActiveOwnerOutsideRoster;
-        }
+        ErrorCause derived = ownerOutsideRoster
+            ? ErrorCause.ActiveOwnerOutsideRoster
+            : ErrorCause.None;
 
-        // Everything else - including the two continuous causes raised from outside, which
-        // the reducer cannot re-derive - is reported from the latch. An earlier version
-        // discarded continuous causes here, which silently swallowed §7.5's cross-file
-        // mismatch and §7.7's incomplete roster: the two conditions whose whole point is
-        // that they are raised rather than tolerated.
-        return state.StickyError;
+        // The DERIVED cause is preferred on a tie, which reproduces today's answer where the
+        // rank is silent. Both operands at an Impaired/Impaired tie are, by that level's own
+        // definition, incapable of being the reason this machine is silent - so the tie is
+        // not a Goal 1 question and recoverability decides it instead. The derived cause
+        // self-clears the moment ActiveOwner re-enters the roster, so whatever it masks is
+        // one claim away; six of the seven continuous causes have no ErrorResolved producer
+        // anywhere in src/, so preferring them would mask the derived cause for the whole
+        // process lifetime with no user action that recovers it.
+        //
+        // The one cell that does change: a retained MaySilence cause now outranks the
+        // derived one. §5.5 says a stranded owner leaves BOTH machines audible, so it can
+        // never explain silence, and §7.4 calls the tray the only visible explanation for
+        // why a machine is silent. Spending that slot on it is the defect.
+        //
+        // Safe against ErrorCause.None because the None impact cell holds exactly that one
+        // member - otherwise a real cause could be swallowed by a None >= None tie. A test
+        // pins the singleton.
+        return ErrorCauseExtensions.Louder(preferred: derived, other: state.StickyError);
     }
 
     private static TrayState TrayFor(

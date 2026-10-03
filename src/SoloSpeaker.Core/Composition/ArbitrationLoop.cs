@@ -121,17 +121,23 @@ public sealed class ArbitrationLoop : IProximitySource
         // this machine audible for up to a full cadence after it should have gone quiet.
         ErrorCause actuationFault = _executor.Reconcile(result.ShouldMute);
 
-        if (executionFault == ErrorCause.None)
-        {
-            executionFault = actuationFault;
-        }
+        // Actuation is preferred on a tie. The rank decides two of the three reachable
+        // pairs - a failed unmute and an unreadable endpoint both outrank a failed persist,
+        // because only they can leave this machine silent. It does not decide
+        // MuteWriteFailed against StatePersistFailed: both are Impaired, since a failed
+        // mute is §7.4's safe direction and a stale state.json leaves the machine audible.
+        // That pair is carried forward from the precedence this site shipped with, and
+        // step 3's set is where it gets settled rather than preferred.
+        ErrorCause fault = ErrorCauseExtensions.Louder(
+            preferred: actuationFault,
+            other: executionFault);
 
-        if (executionFault != ErrorCause.None)
+        if (fault != ErrorCause.None)
         {
             // Re-entered as an ordinary event so the tray reports it through the one path
             // §7.4 defines, rather than by a side channel.
             result = Reducer.Reduce(
-                Context(), State, new ArbitrationEvent.ErrorRaised(executionFault), _clock.Elapsed);
+                Context(), State, new ArbitrationEvent.ErrorRaised(fault), _clock.Elapsed);
             State = result.State;
             LastResult = result;
         }

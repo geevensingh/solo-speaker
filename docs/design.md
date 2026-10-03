@@ -1,8 +1,68 @@
 # SoloSpeaker - Design Plan
 
-**Status:** Revision 12 - splits the actuator's cause by direction so the Goal 1 half is nameable; revision 11 makes the first real audio mutation fail-audible; revision 10 fixes the PeerLink transport and rejoin contradictions row 6 surfaced; revision 9 settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
+**Status:** Revision 13 - ranks `error` causes by audibility impact so a failed unmute outranks a stranded owner; revision 12 splits the actuator's cause by direction so the Goal 1 half is nameable; revision 11 makes the first real audio mutation fail-audible; revision 10 fixes the PeerLink transport and rejoin contradictions row 6 surfaced; revision 9 settles the persisted shapes row 5 freezes; revision 8 corrected §7.1's replay claim and recorded the unbounded case as a risk; revision 7 closed the §7.6 and §7.4 gaps row 3 surfaced; revision 6 defined `activeOwner` before the first claim and dropped self-origin datagrams at ingress; revision 5 made the version-mismatch signal reachable and gave §7.1 sole ownership of ingress; revision 2 incorporated adversarial review findings DR-001...DR-006
 **Author:** drafted with Copilot, 2026-09-25
 **Target:** two Windows machines (one desktop, one laptop), single user
+
+> **Revision 13 changes, 2026-10-02.** §7.4's `error` precedence gains a rank, because the
+> rule it had could not decide the case that matters. This revision **overrides** `:844`'s
+> "first raised wins" at one specific merge; `AGENTS.md` §1 requires that be declared
+> rather than argued away.
+>
+> **Causes are now ordered by audibility impact** - how close a cause is to silencing
+> *this* machine, which is the axis Goal 1 supplies:
+>
+> - **`MaySilence`** - this machine may be silent when it should not be:
+>   `UnmuteWriteFailed`, `LedgerReplayFailed`, `EndpointEnumerationFailed`.
+> - **`Impaired`** - not, and cannot become, the reason this machine is silent, without a
+>   further separately-named failure and within the process lifetime in which it is raised.
+>   The remaining fourteen.
+> - **`Limited`** - arbitration and actuation are both correct; a user-facing convenience
+>   is reduced. `HotkeyRegistrationFailed`.
+> - **`None`** - no cause, and never shared with a real one.
+>
+> Classification is **ordered**: test `MaySilence`, then `Limited`; `Impaired` is the
+> remainder. Two earlier attempts at a positive definition of the middle level were each
+> false for a third of their own members, because a failed disk write and a refused
+> `state.json` both leave arbitration running normally.
+>
+> **What is overridden.** At the merge between the one cause the reducer *derives*
+> (`activeOwner` outside the roster) and the cause it has *retained*, "first raised" is
+> unimplementable: nothing records a raise instant, and the derived cause is recomputed on
+> every evaluation and never stored. The rank replaces it there. **First raised still
+> governs among retained causes**, where that order exists, and it still governs the merge
+> wherever the rank ties.
+>
+> **The one behaviour that changes**: a retained `MaySilence` cause now outranks the
+> derived one. §5.5 says a stranded `activeOwner` leaves **both** machines audible, so it
+> can never be why this machine is silent - and this section calls the tray "the only
+> visible explanation for why a machine is silent". Spending that one slot on it while a
+> failed unmute holds the machine quiet is the defect.
+>
+> **This narrows §5.5's visibility clause for one case**, and that is a trade rather than a
+> free win: one slot, two claimants, Goal 1 decides. The cost is bounded - §7.5's startup
+> decision pairs every non-`None` cause with a *fresh* state, so five of the seven
+> continuous causes cannot coexist with a stranded owner at all, and an incomplete roster
+> has no producer yet. The tray state stays `error` either way; only the named cause moves.
+>
+> **Ties go to the derived cause**, reproducing today's answer. Both operands at such a tie
+> are `Impaired`, so by that level's own definition neither can be why the machine is
+> silent, and the Goal 1 axis is silent on the contest - **recoverability** decides
+> instead. The derived cause self-clears the moment `activeOwner` re-enters the roster, so
+> whatever it masks is one claim away. Six of the seven continuous causes have no
+> retraction path at all, so preferring them would hide the derived cause for the whole
+> process lifetime with no user action that recovers it.
+>
+> **Durable and provisional.** The axis and the table are durable. The **two-operand tie
+> form is not**: the phase that replaces the single retained slot with a set makes a
+> two-operand tiebreak meaningless and must record an order to replace it. Two members are
+> ranked for their worst arm - endpoint enumeration failure and a tunable fallback - which
+> is conservative under one slot and becomes wrong under a set, so both are that phase's
+> precondition.
+>
+> **The impact table is enforced by test, not by this document.** A cause added to the enum
+> and to the test roster in one commit passes with this section untouched - the same gap
+> §7.4's continuity list already has. The test's failure message names this section.
 
 > **Revision 12 changes, 2026-10-02.** Retires `MuteApplyFailed`, added in revision 11, and
 > replaces it with `MuteWriteFailed` and `UnmuteWriteFailed`.
@@ -22,9 +82,11 @@
 > **Two gaps are deliberately left open**, recorded here so they are deferred rather than
 > forgotten:
 >
-> - §7.4's `error` precedence is still **first raised wins**, so a latched `MuteWriteFailed`
->   drops a later `UnmuteWriteFailed`. Until that changes, the rolling log can name the safe
->   direction on a machine that is stuck silent. A test pins the drop.
+> - §7.4's `error` precedence is **first raised wins among retained causes** (narrowed by
+>   revision 13, which added the impact rank for the derived/retained merge), so a retained
+>   `MuteWriteFailed` still drops a later `UnmuteWriteFailed`. Until that changes, the
+>   rolling log can name the safe direction on a machine that is stuck silent. A test pins
+>   the drop.
 > - Both halves being edge means `Acknowledge` clears them, and nothing re-raises. A user can
 >   dismiss a failed unmute and leave the tray ordinary while the machine is still silent.
 >   Closing this needs a retraction path, which §7.4's own revision 9 note requires.
@@ -841,8 +903,12 @@ raises either cause for a missing endpoint. The reconciler is deliberately loose
 path raises on any outcome that is not "applied", because on the one path where silence is the
 failure, a write that could not reach its endpoint must still raise something.
 
-`error` precedence: where several causes hold at once, the tooltip names the **first raised**
-and keeps it until acknowledged. Causes divide into two kinds, and they are acknowledged
+`error` precedence: where several causes hold at once, the tooltip names the cause with the
+highest **audibility impact** (revision 13), and among causes of equal impact the **first
+raised**, keeping it until acknowledged. The one cause the state machine derives rather than
+retains - `activeOwner` outside the roster - has no raise instant, so it loses to a retained
+cause of higher impact and wins an equal-impact tie; revision 13 records why.
+Causes divide into two kinds, and they are acknowledged
 differently. **Continuous** causes - `activeOwner` outside the roster, roster incomplete
 after the pairing window, a cross-file `pairId` mismatch, an unreadable `config.json` or
 `state.json`, a refused `pairKey`, an unrecognised `schema`, `TransportUnavailable` - are
@@ -1148,6 +1214,8 @@ have failed without any authentication at all.
 - stale lower-`seq` datagram does not move ownership
 - no peer -> never muted, whatever `activeOwner` says
 - `activeOwner` outside the roster -> **both** machines audible, `error` raised
+- *(revision 13)* a retained `MaySilence` cause outranks a derived `activeOwner`-outside-roster;
+  an equal-impact tie goes to the derived cause, which is recoverable by one claim
 - `activeOwner == MachineId.None` -> **both** machines audible, and **no** `error`: this is
   the ordinary pre-claim state of §5, not a corrupt one
 - `MachineId.None` is never accepted as a roster entry, from config, from a pairing bundle,

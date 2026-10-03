@@ -206,7 +206,7 @@ public sealed class UnverifiablePeerTests
         Assert.Equal(ErrorCause.None, harness.Error);
     }
 
-    /// <summary>§7.4: the first cause raised is the one the tooltip names.</summary>
+    /// <summary>§7.4: among retained causes, the first one raised is the one named.</summary>
     [Fact]
     public void The_first_cause_raised_is_the_one_reported()
     {
